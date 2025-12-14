@@ -4,4 +4,5 @@ google-generativeai==0.3.1
 python-dotenv==1.0.0
 PyGithub==2.1.1
 cryptography==41.0.7
+PyYAML==6.0.1
 

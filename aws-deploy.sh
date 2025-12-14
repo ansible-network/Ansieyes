@@ -20,7 +20,7 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 # Variables
-APP_DIR="$HOME/ansieyes"
+APP_DIR="$HOME/Ansieyes"
 REPO_URL="${1:-https://github.com/KB-perByte/Ansieye.git}"
 
 echo "📦 Installing system dependencies..."
@@ -62,7 +62,7 @@ fi
 
 echo ""
 echo "📋 Setting up Nginx..."
-sudo tee /etc/nginx/sites-available/ansieyes > /dev/null <<EOF
+sudo tee /etc/nginx/sites-available/Ansieyes > /dev/null <<EOF
 server {
     listen 80;
     server_name _;
@@ -82,7 +82,7 @@ server {
 EOF
 
 # Enable site
-sudo ln -sf /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/Ansieyes /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl restart nginx
 
@@ -100,9 +100,9 @@ echo "🚀 Starting application with PM2..."
 mkdir -p "$HOME/logs"
 
 # Update ecosystem.config.js with correct path
-sed -i "s|/home/ubuntu/ansieyes|$APP_DIR|g" ecosystem.config.js 2>/dev/null || true
+sed -i "s|/home/ubuntu/Ansieyes|$APP_DIR|g" ecosystem.config.js 2>/dev/null || true
 
-pm2 start ecosystem.config.js || pm2 restart ansieyes
+pm2 start ecosystem.config.js || pm2 restart Ansieyes
 pm2 save
 pm2 startup | grep -v "PM2" | bash || true
 
@@ -122,7 +122,7 @@ echo "   2. Update GitHub App webhook URL"
 echo "   3. Test: curl http://localhost:3000/health"
 echo ""
 echo "📋 Useful commands:"
-echo "   - View logs: pm2 logs ansieyes"
-echo "   - Restart: pm2 restart ansieyes"
+echo "   - View logs: pm2 logs Ansieyes"
+echo "   - Restart: pm2 restart Ansieyes"
 echo "   - Status: pm2 status"
 

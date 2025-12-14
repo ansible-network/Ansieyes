@@ -47,24 +47,24 @@ Complete guide to deploy your GitHub bot on AWS.
 ```bash
 # Create security group
 aws ec2 create-security-group \
-  --group-name ansieyes-sg \
+  --group-name Ansieyes-sg \
   --description "Security group for GitHub PR Review Bot"
 
 # Allow HTTP, HTTPS, and SSH
 aws ec2 authorize-security-group-ingress \
-  --group-name ansieyes-sg \
+  --group-name Ansieyes-sg \
   --protocol tcp \
   --port 80 \
   --cidr 0.0.0.0/0
 
 aws ec2 authorize-security-group-ingress \
-  --group-name ansieyes-sg \
+  --group-name Ansieyes-sg \
   --protocol tcp \
   --port 443 \
   --cidr 0.0.0.0/0
 
 aws ec2 authorize-security-group-ingress \
-  --group-name ansieyes-sg \
+  --group-name Ansieyes-sg \
   --protocol tcp \
   --port 22 \
   --cidr YOUR_IP/32
@@ -74,7 +74,7 @@ aws ec2 run-instances \
   --image-id ami-0c55b159cbfafe1f0 \
   --instance-type t3.small \
   --key-name your-key-name \
-  --security-groups ansieyes-sg \
+  --security-groups Ansieyes-sg \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=github-pr-review-bot}]'
 ```
 
@@ -163,7 +163,7 @@ Skip to Step 7 if using IP directly.
 
 ```bash
 # Create Nginx configuration
-sudo nano /etc/nginx/sites-available/ansieyes
+sudo nano /etc/nginx/sites-available/Ansieyes
 ```
 
 Add this configuration:
@@ -192,7 +192,7 @@ server {
 Enable the site:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/Ansieyes /etc/nginx/sites-enabled/
 sudo nginx -t  # Test configuration
 sudo systemctl restart nginx
 ```
@@ -225,7 +225,7 @@ Add:
 module.exports = {
   apps: [
     {
-      name: 'ansieyes',
+      name: 'Ansieyes',
       script: 'app.py',
       interpreter: 'python3',
       cwd: '/home/ubuntu/Ansieye',
@@ -258,7 +258,7 @@ pm2 install pm2-logrotate
 # Start application
 cd /home/ubuntu/Ansieye
 source venv/bin/activate
-pm2 start app.py --name ansieyes --interpreter python3 --env production
+pm2 start app.py --name Ansieyes --interpreter python3 --env production
 
 # Save PM2 configuration
 pm2 save
@@ -273,7 +273,7 @@ pm2 startup
 If you prefer systemd over PM2:
 
 ```bash
-sudo nano /etc/systemd/system/ansieyes.service
+sudo nano /etc/systemd/system/Ansieyes.service
 ```
 
 Add:
@@ -303,9 +303,9 @@ Enable and start:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ansieyes
-sudo systemctl start ansieyes
-sudo systemctl status ansieyes
+sudo systemctl enable Ansieyes
+sudo systemctl start Ansieyes
+sudo systemctl status Ansieyes
 ```
 
 ### Step 11: Update GitHub App Webhook
@@ -325,9 +325,9 @@ curl http://localhost:3000/health
 curl https://your-domain.com/health
 
 # Check logs
-pm2 logs ansieyes
+pm2 logs Ansieyes
 # OR
-sudo journalctl -u ansieyes -f
+sudo journalctl -u Ansieyes -f
 ```
 
 ### Step 13: Setup Auto-Deploy (Optional)
@@ -344,7 +344,7 @@ cd /home/ubuntu/Ansieye
 git pull origin main
 source venv/bin/activate
 pip install -r requirements.txt
-pm2 restart ansieyes
+pm2 restart Ansieyes
 ```
 
 Make executable:
@@ -366,19 +366,19 @@ chmod +x ~/deploy.sh
 
 ```bash
 # On your local machine
-aws ecr create-repository --repository-name ansieyes
+aws ecr create-repository --repository-name Ansieyes
 
 # Get login token
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
 
 # Build image
-docker build -t ansieyes .
+docker build -t Ansieyes .
 
 # Tag image
-docker tag ansieyes:latest YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ansieyes:latest
+docker tag Ansieyes:latest YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/Ansieyes:latest
 
 # Push image
-docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ansieyes:latest
+docker push YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/Ansieyes:latest
 ```
 
 ### Step 2: Create ECS Task Definition
@@ -387,15 +387,15 @@ Create `task-definition.json`:
 
 ```json
 {
-  "family": "ansieyes",
+  "family": "Ansieyes",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "256",
   "memory": "512",
   "containerDefinitions": [
     {
-      "name": "ansieyes",
-      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ansieyes:latest",
+      "name": "Ansieyes",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/Ansieyes:latest",
       "portMappings": [
         {
           "containerPort": 3000,
@@ -431,7 +431,7 @@ Create `task-definition.json`:
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/ansieyes",
+          "awslogs-group": "/ecs/Ansieyes",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
@@ -452,8 +452,8 @@ aws ecs register-task-definition --cli-input-json file://task-definition.json
 ```bash
 aws ecs create-service \
   --cluster your-cluster-name \
-  --service-name ansieyes \
-  --task-definition ansieyes \
+  --service-name Ansieyes \
+  --task-definition Ansieyes \
   --desired-count 1 \
   --launch-type FARGATE \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-xxx],securityGroups=[sg-xxx],assignPublicIp=ENABLED}"
@@ -479,13 +479,13 @@ pip install awsebcli
 ### Step 2: Initialize EB Application
 
 ```bash
-eb init -p python-3.11 ansieyes --region us-east-1
+eb init -p python-3.11 Ansieyes --region us-east-1
 ```
 
 ### Step 3: Create Environment
 
 ```bash
-eb create ansieyes-env
+eb create Ansieyes-env
 ```
 
 ### Step 4: Set Environment Variables
@@ -562,7 +562,7 @@ Store sensitive data in Secrets Manager:
 ```bash
 # Store secrets
 aws secretsmanager create-secret \
-  --name ansieyes-secrets \
+  --name Ansieyes-secrets \
   --secret-string '{"GEMINI_API_KEY":"your_key","GITHUB_APP_ID":"123","GITHUB_WEBHOOK_SECRET":"secret"}'
 
 # Update app.py to read from Secrets Manager
@@ -615,7 +615,7 @@ View logs:
 ```bash
 # Via AWS Console: CloudWatch → Log Groups
 # Or via CLI:
-aws logs tail /aws/ec2/ansieyes --follow
+aws logs tail /aws/ec2/Ansieyes --follow
 ```
 
 ### Setup Alarms
@@ -623,7 +623,7 @@ aws logs tail /aws/ec2/ansieyes --follow
 ```bash
 # Create alarm for high CPU
 aws cloudwatch put-metric-alarm \
-  --alarm-name ansieyes-high-cpu \
+  --alarm-name Ansieyes-high-cpu \
   --alarm-description "Alert when CPU exceeds 80%" \
   --metric-name CPUUtilization \
   --namespace AWS/EC2 \
@@ -643,11 +643,11 @@ aws cloudwatch put-metric-alarm \
 ```bash
 # Check PM2 status
 pm2 status
-pm2 logs ansieyes
+pm2 logs Ansieyes
 
 # Check systemd status
-sudo systemctl status ansieyes
-sudo journalctl -u ansieyes -n 50
+sudo systemctl status Ansieyes
+sudo journalctl -u Ansieyes -n 50
 
 # Check Nginx
 sudo nginx -t
@@ -669,7 +669,7 @@ free -h
 ps aux --sort=-%mem | head
 
 # Restart application
-pm2 restart ansieyes
+pm2 restart Ansieyes
 ```
 
 ---
@@ -678,23 +678,23 @@ pm2 restart ansieyes
 
 ```bash
 # View logs
-pm2 logs ansieyes
-sudo journalctl -u ansieyes -f
+pm2 logs Ansieyes
+sudo journalctl -u Ansieyes -f
 
 # Restart application
-pm2 restart ansieyes
-sudo systemctl restart ansieyes
+pm2 restart Ansieyes
+sudo systemctl restart Ansieyes
 
 # Check status
 pm2 status
-sudo systemctl status ansieyes
+sudo systemctl status Ansieyes
 
 # Update application
 cd /home/ubuntu/Ansieye
 git pull
 source venv/bin/activate
 pip install -r requirements.txt
-pm2 restart ansieyes
+pm2 restart Ansieyes
 ```
 
 ---

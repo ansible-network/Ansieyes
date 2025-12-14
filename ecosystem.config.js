@@ -1,9 +1,9 @@
 module.exports = {
   apps: [{
-    name: 'ansieyes',
+    name: 'Ansieyes',
     script: 'app.py',
     interpreter: 'python3',
-    cwd: '/home/ubuntu/ansieyes',
+    cwd: '/home/ubuntu/Ansieyes',
     env_file: '.env',
     error_file: '/home/ubuntu/logs/err.log',
     out_file: '/home/ubuntu/logs/out.log',

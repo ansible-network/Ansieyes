@@ -82,7 +82,7 @@ This guide covers various hosting options for deploying your GitHub bot.
    - Select "Web Service"
 
 3. **Configure**:
-   - **Name**: ansieyes
+   - **Name**: Ansieyes
    - **Environment**: Python 3
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `python app.py`
@@ -194,7 +194,7 @@ This guide covers various hosting options for deploying your GitHub bot.
    pip install -r requirements.txt
    ```
 
-5. **Create systemd service** (`/etc/systemd/system/ansieyes.service`):
+5. **Create systemd service** (`/etc/systemd/system/Ansieyes.service`):
    ```ini
    [Unit]
    Description=GitHub PR Review Bot
@@ -215,11 +215,11 @@ This guide covers various hosting options for deploying your GitHub bot.
 6. **Start service**:
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl enable ansieyes
-   sudo systemctl start ansieyes
+   sudo systemctl enable Ansieyes
+   sudo systemctl start Ansieyes
    ```
 
-7. **Setup Nginx reverse proxy** (`/etc/nginx/sites-available/ansieyes`):
+7. **Setup Nginx reverse proxy** (`/etc/nginx/sites-available/Ansieyes`):
    ```nginx
    server {
        listen 80;
@@ -237,7 +237,7 @@ This guide covers various hosting options for deploying your GitHub bot.
 
 8. **Enable site and restart**:
    ```bash
-   sudo ln -s /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+   sudo ln -s /etc/nginx/sites-available/Ansieyes /etc/nginx/sites-enabled/
    sudo nginx -t
    sudo systemctl restart nginx
    ```
@@ -270,20 +270,20 @@ This guide covers various hosting options for deploying your GitHub bot.
 
 1. **Build image**:
    ```bash
-   docker build -t ansieyes .
+   docker build -t Ansieyes .
    ```
 
 2. **Run container**:
    ```bash
    docker run -d \
-     --name ansieyes \
+     --name Ansieyes \
      -p 3000:3000 \
      -e GEMINI_API_KEY=your_key \
      -e GITHUB_APP_ID=123456 \
      -e GITHUB_WEBHOOK_SECRET=your_secret \
      -e GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem \
      -v $(pwd)/private-key.pem:/app/private-key.pem:ro \
-     ansieyes
+     Ansieyes
    ```
 
 ### Deploy to cloud with Docker:

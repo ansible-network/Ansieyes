@@ -145,6 +145,26 @@ def webhook():
 
         return jsonify({"status": "processed"}), 200
 
+    # Handle workflow run events (GitHub Actions)
+    if event_type == 'workflow_run':
+        action = payload.get('action')
+        logger.info(f"Workflow run action: {action}")
+
+        if action in ['completed']:
+            installation_id = payload.get('installation', {}).get('id')
+            if not installation_id:
+                logger.error("No installation ID found in webhook payload")
+                return jsonify({"error": "No installation ID"}), 400
+
+            # Process workflow run analysis
+            try:
+                analyze_workflow_run(payload, installation_id)
+            except Exception as e:
+                logger.error(f"Error processing workflow run: {e}")
+                return jsonify({"error": str(e)}), 500
+
+        return jsonify({"status": "processed"}), 200
+
     return jsonify({"status": "ignored"}), 200
 
 
@@ -190,11 +210,15 @@ def review_pr(payload, installation_id):
 
         logger.info(f"Found {len(file_changes)} changed files")
 
+        # Get repo URL for prompt selection
+        repo_url = pr_data.get('base', {}).get('repo', {}).get('html_url', '') or repo.html_url
+
         # Generate review using Gemini
         review_comments = pr_reviewer.review_pr(
             title=title,
             body=body,
-            file_changes=file_changes
+            file_changes=file_changes,
+            repo_url=repo_url
         )
 
         if not review_comments:
@@ -240,6 +264,143 @@ def post_review_comments(pr, review_comments):
 
     except Exception as e:
         logger.error(f"Error posting review comments: {e}")
+
+
+def analyze_workflow_run(payload, installation_id):
+    """Analyze GitHub Actions workflow run and comment on PR"""
+    workflow_run = payload.get('workflow_run', {})
+    workflow_name = workflow_run.get('name', 'Unknown Workflow')
+    conclusion = workflow_run.get('conclusion')  # success, failure, cancelled, etc.
+    status = workflow_run.get('status')  # completed, in_progress, etc.
+    workflow_id = workflow_run.get('id')
+    head_branch = workflow_run.get('head_branch', '')
+    head_sha = workflow_run.get('head_sha', '')
+
+    repo_full_name = workflow_run.get('repository', {}).get('full_name')
+    if not repo_full_name:
+        repo_full_name = payload.get('repository', {}).get('full_name')
+
+    logger.info(f"Analyzing workflow run: {workflow_name} (ID: {workflow_id}) - Status: {status}, Conclusion: {conclusion}")
+
+    # Get GitHub client
+    github_client = get_github_client(installation_id)
+    if not github_client:
+        logger.error("Failed to create GitHub client")
+        return
+
+    try:
+        repo = github_client.get_repo(repo_full_name)
+
+        # Find associated PR for this workflow run
+        prs = repo.get_pulls(state='open', head=head_branch)
+        pr = None
+        for pr_candidate in prs:
+            if pr_candidate.head.sha == head_sha:
+                pr = pr_candidate
+                break
+
+        # If no open PR found, try closed PRs
+        if not pr:
+            prs = repo.get_pulls(state='closed', head=head_branch)
+            for pr_candidate in prs:
+                if pr_candidate.head.sha == head_sha:
+                    pr = pr_candidate
+                    break
+
+        if not pr:
+            logger.warning(f"No PR found for workflow run {workflow_id} (branch: {head_branch}, sha: {head_sha})")
+            return
+
+        logger.info(f"Found PR #{pr.number} for workflow run")
+
+        # Get repo URL for prompt selection
+        repo_url = repo.html_url
+
+        # Get workflow run details
+        jobs_info = []
+        failed_jobs = []
+
+        try:
+            workflow_run_obj = repo.get_workflow_run(workflow_id)
+            jobs = workflow_run_obj.jobs()
+
+            # Collect job information
+            for job in jobs:
+                job_info = {
+                    'name': job.name,
+                    'conclusion': job.conclusion,
+                    'status': job.status,
+                    'steps': []
+                }
+
+                # Get job steps
+                try:
+                    for step in job.steps:
+                        job_info['steps'].append({
+                            'name': step.name,
+                            'conclusion': step.conclusion,
+                            'status': step.status
+                        })
+                except Exception as e:
+                    logger.warning(f"Could not fetch steps for job {job.name}: {e}")
+
+                jobs_info.append(job_info)
+                if job.conclusion == 'failure':
+                    failed_jobs.append(job.name)
+        except Exception as e:
+            logger.warning(f"Could not fetch detailed workflow run info: {e}")
+            # Use basic info from webhook payload
+            if workflow_run.get('jobs'):
+                for job in workflow_run['jobs']:
+                    jobs_info.append({
+                        'name': job.get('name', 'Unknown'),
+                        'conclusion': job.get('conclusion', 'unknown'),
+                        'status': job.get('status', 'unknown'),
+                        'steps': []
+                    })
+                    if job.get('conclusion') == 'failure':
+                        failed_jobs.append(job.get('name', 'Unknown'))
+
+        # Generate analysis using Gemini
+        analysis = pr_reviewer.analyze_workflow_run(
+            workflow_name=workflow_name,
+            conclusion=conclusion,
+            jobs=jobs_info,
+            failed_jobs=failed_jobs,
+            workflow_url=workflow_run.get('html_url', ''),
+            repo_url=repo_url
+        )
+
+        # Post comment on PR
+        comment_body = format_workflow_comment(analysis, workflow_name, conclusion, failed_jobs, workflow_run.get('html_url', ''))
+        pr.create_issue_comment(comment_body)
+        logger.info(f"Posted workflow analysis comment on PR #{pr.number}")
+
+    except GithubException as e:
+        logger.error(f"GitHub API error: {e}")
+    except Exception as e:
+        logger.error(f"Error analyzing workflow run: {e}")
+
+
+def format_workflow_comment(analysis, workflow_name, conclusion, failed_jobs, workflow_url):
+    """Format workflow analysis comment for GitHub"""
+    status_emoji = "✅" if conclusion == "success" else "❌" if conclusion == "failure" else "⚠️"
+
+    comment = f"## {status_emoji} GitHub Actions Workflow: {workflow_name}\n\n"
+    comment += f"**Status:** `{conclusion.upper()}`\n\n"
+
+    if workflow_url:
+        comment += f"[View Workflow Run]({workflow_url})\n\n"
+
+    if failed_jobs:
+        comment += f"**Failed Jobs:** {', '.join(failed_jobs)}\n\n"
+
+    comment += "### Analysis\n\n"
+    comment += analysis
+
+    comment += "\n\n---\n*This analysis was generated automatically by the Gemini AI Code Review Bot.*"
+
+    return comment
 
 
 if __name__ == '__main__':

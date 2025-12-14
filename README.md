@@ -7,6 +7,8 @@ An automated GitHub bot that reviews pull requests using Google's Gemini AI and 
 - 🤖 Automated PR reviews using Gemini AI
 - 📝 Detailed code review comments
 - 🔍 File-specific and inline comments
+- ⚙️ GitHub Actions workflow monitoring and analysis
+- ✅ Comments on workflow success/failure with AI insights
 - 🔐 Secure webhook signature verification
 - 🚀 Easy deployment setup
 
@@ -38,7 +40,10 @@ pip install -r requirements.txt
      - **Pull requests**: Read & Write
      - **Contents**: Read
      - **Metadata**: Read-only
-   - **Subscribe to events**: Pull requests
+     - **Actions**: Read (for workflow run monitoring)
+   - **Subscribe to events**:
+     - Pull requests
+     - Workflow runs (for GitHub Actions monitoring)
 5. After creating, note down:
    - **App ID**
    - Generate and download a **Private Key** (.pem file)
@@ -128,6 +133,7 @@ Then use `GITHUB_PRIVATE_KEY_B64` environment variable instead of file path.
 
 The bot listens for these GitHub events:
 - `pull_request` (actions: `opened`, `synchronize`, `reopened`)
+- `workflow_run` (action: `completed`) - Monitors GitHub Actions workflows and comments on success/failure
 
 ## Customization
 

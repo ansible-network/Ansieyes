@@ -47,7 +47,7 @@
 
 ```bash
 # Build
-docker build -t ansieyes .
+docker build -t Ansieyes .
 
 # Run
 docker run -d \
@@ -56,7 +56,7 @@ docker run -d \
   -e GITHUB_APP_ID=123456 \
   -e GITHUB_PRIVATE_KEY_B64=$(cat private-key.pem | base64 -w 0) \
   -e GITHUB_WEBHOOK_SECRET=your_secret \
-  ansieyes
+  Ansieyes
 ```
 
 ---

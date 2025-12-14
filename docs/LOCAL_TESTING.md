@@ -102,8 +102,8 @@ Run the app in a Docker container:
 docker-compose up --build
 
 # Or build and run manually
-docker build -t ansieyes .
-docker run -p 3000:3000 --env-file .env ansieyes
+docker build -t Ansieyes .
+docker run -p 3000:3000 --env-file .env Ansieyes
 ```
 
 **What you need:** All environment variables in `.env` file.

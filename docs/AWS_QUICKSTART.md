@@ -85,7 +85,7 @@ cat private-key.pem | base64 -w 0
 ### 4. Setup Nginx
 
 ```bash
-sudo nano /etc/nginx/sites-available/ansieyes
+sudo nano /etc/nginx/sites-available/Ansieyes
 ```
 
 Paste:
@@ -106,7 +106,7 @@ server {
 
 Enable and restart:
 ```bash
-sudo ln -s /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/Ansieyes /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl restart nginx
@@ -167,10 +167,10 @@ curl https://your-domain.com/health
 
 ```bash
 # View application logs
-pm2 logs ansieyes
+pm2 logs Ansieyes
 
 # Restart application
-pm2 restart ansieyes
+pm2 restart Ansieyes
 
 # Check status
 pm2 status
@@ -187,7 +187,7 @@ df -h
 
 ### Application not starting
 ```bash
-pm2 logs ansieyes --lines 50
+pm2 logs Ansieyes --lines 50
 # Check for errors in logs
 ```
 

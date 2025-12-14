@@ -1,13 +1,13 @@
 {
-  "family": "ansieyes",
+  "family": "Ansieyes",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "256",
   "memory": "512",
   "containerDefinitions": [
     {
-      "name": "ansieyes",
-      "image": "YOUR_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/ansieyes:latest",
+      "name": "Ansieyes",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/Ansieyes:latest",
       "portMappings": [
         {
           "containerPort": 3000,
@@ -44,7 +44,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/ansieyes",
+          "awslogs-group": "/ecs/Ansieyes",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
