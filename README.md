@@ -1,7 +1,7 @@
 # Ansieyes - GitHub PR Review Bot with Gemini API
 
 An automated GitHub bot that reviews pull requests using Google's Gemini AI and posts comments directly on PRs.
-NOTE - Documentation and configuration structure is gerated by Cursor using the composer-1 model.
+### NOTE - Documentation and configuration structure is gerated by Cursor using the composer-1 model.
 
 ## Features
 
