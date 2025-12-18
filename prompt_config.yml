@@ -5,21 +5,20 @@
 repo_mappings:
   # Network-related repositories
   network:
-    - "github.com/ansible-collections/ansible.*"
-    - "github.com/ansible-collections/cisco.*"
-    - "github.com/ansible-collections/arista.*"
+    - 'github.com/ansible-collections/ansible.*'
+    - 'github.com/ansible-collections/cisco.*'
+    - 'github.com/ansible-collections/arista.*'
 
   # DevTools-related repositories
   devtools:
-    - "github.com/ansible/.*"
-
+    - 'github.com/ansible/.*'
 
 # Prompt templates for each repo type
 prompts:
   # Default prompt (used when no repo type matches)
   default:
     pr_review:
-      system_role: "You are an expert code reviewer. Review the following pull request and provide constructive feedback."
+      system_role: 'You are an expert code reviewer. Review the following pull request and provide constructive feedback.'
 
       review_structure: |
         Please provide a comprehensive code review with the following structure:
@@ -52,7 +51,7 @@ prompts:
   # Network-specific prompt
   network:
     pr_review:
-      system_role: "You are an expert network engineer and code reviewer specializing in network automation, Ansible playbooks, network device configurations, and infrastructure as code. Review the following pull request with a focus on network operations, security, and best practices."
+      system_role: 'You are an expert network engineer and code reviewer specializing in network automation, Ansible playbooks, network device configurations, and infrastructure as code. Review the following pull request with a focus on network operations, security, and best practices.'
 
       review_structure: |
         Please provide a comprehensive code review with the following structure:
@@ -95,7 +94,7 @@ prompts:
   # DevTools-specific prompt
   devtools:
     pr_review:
-      system_role: "You are an expert software engineer and code reviewer specializing in developer tools, CLI applications, SDKs, libraries, and frameworks. Review the following pull request with a focus on API design, usability, documentation, and developer experience."
+      system_role: 'You are an expert software engineer and code reviewer specializing in developer tools, CLI applications, SDKs, libraries, and frameworks. Review the following pull request with a focus on API design, usability, documentation, and developer experience.'
 
       review_structure: |
         Please provide a comprehensive code review with the following structure:
@@ -162,4 +161,3 @@ prompts:
            - Documentation automation
 
         Be concise, actionable, and helpful. Format your response with clear markdown sections. Focus on developer productivity and tool reliability.
-

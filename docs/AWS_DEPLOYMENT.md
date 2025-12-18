@@ -353,6 +353,54 @@ Make executable:
 chmod +x ~/deploy.sh
 ```
 
+### TO CHECK - restart not holding pm2 configuration
+
+```bash
+# Stop nginx
+sudo systemctl stop nginx
+
+# Remove all enabled sites
+sudo rm -rf /etc/nginx/sites-enabled/*
+
+# Create clean config
+sudo tee /etc/nginx/sites-available/ansieyes > /dev/null <<'EOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+EOF
+
+# Start app using pm2
+cd Ansieyes
+pm2 start app.py --name Ansieyes --interpreter python3 --env production
+
+
+# Enable site
+sudo ln -s /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/ansieyes
+
+# Test and start
+sudo nginx -t && sudo systemctl start nginx
+
+# Verify
+curl http://localhost/health
+
+# Check logs
+pm2 logs Ansieyes
+```
+
 ---
 
 ## Option 2: ECS/Fargate (Containerized)
