@@ -268,42 +268,75 @@ install_system_dependencies() {
 install_nodejs() {
     print_header "Installing Node.js and npm"
     
+    # Check if Node.js is installed and version
     if command -v node &> /dev/null; then
-        print_info "Node.js already installed, skipping..."
-        return 0
+        node_version=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+        if [ "$node_version" -ge 20 ]; then
+            print_info "Node.js $(node --version) already installed (version 20+) ✓"
+            return 0
+        else
+            print_warning "Node.js $(node --version) is installed but Repomix requires version 20+"
+            print_info "Upgrading to Node.js 20 LTS..."
+        fi
     fi
     
     echo "Detecting OS..."
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         if command -v brew &> /dev/null; then
-            print_info "Installing Node.js via Homebrew..."
-            brew install node
+            print_info "Installing Node.js 20 via Homebrew..."
+            brew install node@20 || brew upgrade node
         else
-            print_error "Homebrew not found. Please install Node.js manually:"
+            print_error "Homebrew not found. Please install Node.js 20+ manually:"
             print_info "Visit: https://nodejs.org/"
             exit 1
         fi
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux
-        print_info "Installing Node.js via package manager..."
+        # Linux - use NodeSource for latest Node.js 20 LTS
+        print_info "Installing Node.js 20 LTS via NodeSource..."
+        
         if command -v apt-get &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y nodejs npm
+            # Debian/Ubuntu
+            # Remove old Node.js if present
+            sudo apt-get remove -y nodejs npm 2>/dev/null || true
+            
+            # Add NodeSource repository for Node.js 20.x
+            print_info "Adding NodeSource repository..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            
+            # Install Node.js 20
+            print_info "Installing Node.js 20..."
+            sudo apt-get install -y nodejs
+            
         elif command -v yum &> /dev/null; then
-            sudo yum install -y nodejs npm
+            # RHEL/CentOS/Amazon Linux
+            sudo yum remove -y nodejs npm 2>/dev/null || true
+            
+            # Add NodeSource repository
+            curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+            
+            # Install Node.js 20
+            sudo yum install -y nodejs
         else
-            print_error "Package manager not supported. Please install Node.js manually:"
+            print_error "Package manager not supported. Please install Node.js 20+ manually:"
             print_info "Visit: https://nodejs.org/"
             exit 1
         fi
+        
+        # Verify installation
+        if command -v node &> /dev/null; then
+            node_version=$(node --version)
+            print_success "Node.js $node_version installed successfully"
+        else
+            print_error "Node.js installation failed"
+            exit 1
+        fi
     else
-        print_error "OS not supported. Please install Node.js manually:"
+        print_error "OS not supported. Please install Node.js 20+ manually:"
         print_info "Visit: https://nodejs.org/"
         exit 1
     fi
     
-    print_success "Node.js installed successfully"
     echo
 }
 
