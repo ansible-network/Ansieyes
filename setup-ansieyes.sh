@@ -167,6 +167,20 @@ install_system_dependencies() {
             sudo apt update
             if sudo apt install -y "${packages[@]}"; then
                 print_success "Packages installed successfully"
+                
+                # Refresh PATH to include newly installed binaries
+                export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+                hash -r  # Clear bash's command cache
+                
+                # Verify critical commands are now available
+                if [[ " ${packages[@]} " =~ " nodejs " ]] || [[ " ${packages[@]} " =~ " npm " ]]; then
+                    if ! command -v npm &> /dev/null; then
+                        print_warning "npm not immediately available, sourcing profile..."
+                        source /etc/profile 2>/dev/null || true
+                        source ~/.bashrc 2>/dev/null || true
+                        export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+                    fi
+                fi
             else
                 print_error "Failed to install some packages"
                 exit 1
@@ -175,6 +189,20 @@ install_system_dependencies() {
             print_info "Using yum (RHEL/CentOS/Amazon Linux)..."
             if sudo yum install -y "${packages[@]}"; then
                 print_success "Packages installed successfully"
+                
+                # Refresh PATH
+                export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+                hash -r
+                
+                # Verify npm
+                if [[ " ${packages[@]} " =~ " nodejs " ]] || [[ " ${packages[@]} " =~ " npm " ]]; then
+                    if ! command -v npm &> /dev/null; then
+                        print_warning "npm not immediately available, sourcing profile..."
+                        source /etc/profile 2>/dev/null || true
+                        source ~/.bashrc 2>/dev/null || true
+                        export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+                    fi
+                fi
             else
                 print_error "Failed to install some packages"
                 exit 1
@@ -188,6 +216,10 @@ install_system_dependencies() {
             print_info "Using Homebrew (macOS)..."
             if brew install "${packages[@]}"; then
                 print_success "Packages installed successfully"
+                
+                # Refresh PATH for Homebrew
+                eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
+                hash -r
             else
                 print_error "Failed to install some packages"
                 exit 1
@@ -200,6 +232,35 @@ install_system_dependencies() {
         print_error "Unsupported operating system"
         exit 1
     fi
+    
+    # Final verification
+    print_info "Verifying installations..."
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            nodejs)
+                if command -v node &> /dev/null; then
+                    print_success "node: $(node --version)"
+                else
+                    print_error "node command not found after installation"
+                fi
+                ;;
+            npm)
+                if command -v npm &> /dev/null; then
+                    print_success "npm: $(npm --version)"
+                else
+                    print_error "npm command not found after installation"
+                    print_info "You may need to restart your terminal or run: source ~/.bashrc"
+                fi
+                ;;
+            python3-pip)
+                if command -v pip3 &> /dev/null; then
+                    print_success "pip3: $(pip3 --version | cut -d' ' -f2)"
+                else
+                    print_error "pip3 command not found after installation"
+                fi
+                ;;
+        esac
+    done
     
     echo
 }
@@ -254,15 +315,33 @@ install_repomix() {
         return 0
     fi
     
-    print_info "Installing repomix globally..."
-    npm install -g repomix
+    # Verify npm is available
+    if ! command -v npm &> /dev/null; then
+        print_error "npm command not found!"
+        print_warning "npm was installed but is not available in the current shell"
+        echo
+        print_info "Please run the following command and then re-run this script:"
+        echo "  source ~/.bashrc"
+        echo "  # OR restart your terminal"
+        echo
+        exit 1
+    fi
     
-    if command -v repomix &> /dev/null; then
+    print_info "Installing repomix globally..."
+    if npm install -g repomix; then
         print_success "Repomix installed successfully"
-        repomix_version=$(repomix --version)
-        print_info "Repomix version: $repomix_version"
+        
+        if command -v repomix &> /dev/null; then
+            repomix_version=$(repomix --version)
+            print_info "Repomix version: $repomix_version"
+        else
+            print_warning "repomix installed but not in PATH"
+            print_info "You may need to add npm global bin to PATH"
+            print_info "Run: export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
+        fi
     else
         print_error "Failed to install repomix"
+        print_info "Try manually: npm install -g repomix"
         exit 1
     fi
     
