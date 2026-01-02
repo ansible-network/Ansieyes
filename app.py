@@ -8,6 +8,8 @@ import hashlib
 import base64
 import logging
 import subprocess
+import tempfile
+import shutil
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from github import Github
@@ -494,7 +496,6 @@ For PR reviews, please use `@_ab_prreview` instead.
         
         # Clone repository to check for triage.config.json and .omit-triage
         logger.info("Cloning repository to fetch configuration files...")
-        import tempfile
         temp_dir = tempfile.mkdtemp()
         cloned_repo_path = os.path.join(temp_dir, 'repo')
         
@@ -503,9 +504,23 @@ For PR reviews, please use `@_ab_prreview` instead.
                 ['git', 'clone', '--depth', '1', repo_url, cloned_repo_path],
                 capture_output=True,
                 check=True,
-                timeout=60
+                timeout=300  # 5 minute timeout
             )
             logger.info(f"Repository cloned to {cloned_repo_path}")
+        except subprocess.TimeoutExpired:
+            logger.error("Repository clone timeout")
+            issue.create_comment(
+                "## ⚠️ Timeout Error\n\n"
+                "Repository clone took too long (>5 minutes).\n\n"
+                "This might be due to:\n"
+                "- Very large repository\n"
+                "- Network issues\n"
+                "- GitHub API rate limits\n\n"
+                "Please try again later or contact support.\n\n"
+                "---\n*Powered by Ansieyes*"
+            )
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return
         except Exception as e:
             logger.error(f"Failed to clone repository: {e}")
             issue.create_comment(
@@ -514,6 +529,7 @@ For PR reviews, please use `@_ab_prreview` instead.
                 f"Error: {str(e)}\n\n"
                 "---\n*Powered by Ansieyes*"
             )
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return
         
         # Fetch existing issues for duplicate detection
@@ -543,12 +559,13 @@ For PR reviews, please use `@_ab_prreview` instead.
             repo_path=cloned_repo_path
         )
         
-        # Clean up cloned repository
+        # Clean up cloned repository (CRITICAL: Always cleanup)
         try:
-            import shutil
-            shutil.rmtree(temp_dir)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.info(f"Cleaned up temp directory: {temp_dir}")
         except Exception as e:
-            logger.warning(f"Failed to clean up temp directory: {e}")
+            logger.error(f"Failed to clean up temp directory: {e}")
+            # Log this for monitoring - disk space issues can be serious
         
         # Format and post results
         comment_body = issue_triager.format_triage_comment(triage_result)

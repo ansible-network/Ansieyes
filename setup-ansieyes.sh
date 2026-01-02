@@ -234,6 +234,13 @@ install_ansieyes_dependencies() {
 configure_environment() {
     print_header "Configuring Environment"
     
+    echo
+    print_info "You will need the following credentials:"
+    echo "  ✓ Gemini API key (for AI features)"
+    echo "  ✓ GitHub App ID, private key, webhook secret"
+    echo "  ✗ AWS credentials are NOT needed"
+    echo
+    
     if [ -f ".env" ]; then
         print_warning ".env file already exists"
         read -p "Do you want to overwrite it? (y/n): " overwrite
@@ -395,19 +402,223 @@ start_with_ngrok() {
     fi
 }
 
-deploy_to_aws() {
-    print_header "AWS Deployment"
+detect_ec2() {
+    # Check if running on EC2
+    if [ -f /sys/hypervisor/uuid ] && [ `head -c 3 /sys/hypervisor/uuid` == ec2 ]; then
+        return 0
+    elif curl -s -m 1 http://169.254.169.254/latest/meta-data/ &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+get_ec2_public_ip() {
+    curl -s http://169.254.169.254/latest/meta-data/public-ipv4
+}
+
+get_ec2_public_dns() {
+    curl -s http://169.254.169.254/latest/meta-data/public-hostname
+}
+
+setup_systemd_service() {
+    print_header "Setting up Systemd Service"
     
-    print_info "AWS deployment requires additional setup:"
-    echo "  - AWS CLI configured"
-    echo "  - Docker installed"
-    echo "  - ECS cluster ready"
+    local service_file="/etc/systemd/system/ansieyes.service"
+    local work_dir="$SCRIPT_DIR"
+    local user="$USER"
+    
+    print_info "Creating systemd service file..."
+    
+    sudo tee $service_file > /dev/null << EOF
+[Unit]
+Description=Ansieyes GitHub Bot
+After=network.target
+
+[Service]
+Type=simple
+User=$user
+WorkingDirectory=$work_dir
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=$work_dir/.env
+ExecStart=/usr/bin/python3 $work_dir/app.py
+Restart=always
+RestartSec=10
+StandardOutput=append:$work_dir/ansieyes.log
+StandardError=append:$work_dir/ansieyes.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    print_success "Systemd service created"
+    
+    print_info "Enabling and starting service..."
+    sudo systemctl daemon-reload
+    sudo systemctl enable ansieyes
+    sudo systemctl start ansieyes
+    
+    sleep 2
+    
+    if sudo systemctl is-active --quiet ansieyes; then
+        print_success "Ansieyes service is running!"
+        print_info "Check logs: journalctl -u ansieyes -f"
+    else
+        print_error "Service failed to start. Check logs: journalctl -u ansieyes -xe"
+    fi
+    
     echo
+}
+
+setup_nginx_ssl() {
+    print_header "Setting up Nginx with SSL"
     
-    read -p "Do you want to proceed with AWS deployment? (y/n): " deploy_aws
-    if [[ $deploy_aws == "y" || $deploy_aws == "Y" ]]; then
-        print_info "For detailed AWS deployment, see: docs/AWS_DEPLOYMENT.md"
-        print_info "Or run: ./aws-deploy.sh"
+    read -p "Enter your domain name (e.g., ansieyes.yourdomain.com): " domain_name
+    
+    if [ -z "$domain_name" ]; then
+        print_warning "No domain provided, skipping nginx setup"
+        return 0
+    fi
+    
+    read -p "Enter your email for Let's Encrypt SSL: " email
+    
+    print_info "Installing nginx and certbot..."
+    sudo apt update
+    sudo apt install -y nginx certbot python3-certbot-nginx
+    
+    print_info "Creating nginx configuration..."
+    
+    sudo tee /etc/nginx/sites-available/ansieyes > /dev/null << EOF
+server {
+    server_name $domain_name;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+    
+    sudo ln -sf /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+    sudo nginx -t
+    
+    if [ $? -eq 0 ]; then
+        sudo systemctl restart nginx
+        print_success "Nginx configured successfully"
+        
+        print_info "Obtaining SSL certificate from Let's Encrypt..."
+        sudo certbot --nginx -d $domain_name --non-interactive --agree-tos --email $email
+        
+        if [ $? -eq 0 ]; then
+            print_success "SSL certificate obtained!"
+            print_success "Your webhook URL: https://$domain_name/webhook"
+        else
+            print_warning "SSL setup failed. You can set it up manually later."
+            print_info "Your webhook URL: http://$domain_name/webhook"
+        fi
+    else
+        print_error "Nginx configuration test failed"
+    fi
+    
+    echo
+}
+
+deploy_to_ec2() {
+    print_header "EC2 Production Deployment"
+    
+    # Detect if we're on EC2
+    if detect_ec2; then
+        print_success "Detected EC2 environment"
+        echo
+        print_info "ℹ️  Note: AWS credentials are NOT required for this setup"
+        print_info "The script only needs GitHub and Gemini API credentials"
+        echo
+        
+        # Get EC2 info
+        public_ip=$(get_ec2_public_ip)
+        public_dns=$(get_ec2_public_dns)
+        
+        print_info "EC2 Public IP: $public_ip"
+        print_info "EC2 Public DNS: $public_dns"
+        echo
+        
+        # Webhook URL options
+        print_info "Webhook URL Options:"
+        echo "1) http://$public_ip:3000/webhook (Direct IP)"
+        echo "2) http://$public_dns:3000/webhook (Public DNS)"
+        echo "3) Custom domain with SSL (Recommended)"
+        echo
+        
+        read -p "Choose option (1-3): " url_choice
+        
+        case $url_choice in
+            1)
+                WEBHOOK_URL="http://$public_ip:3000/webhook"
+                ;;
+            2)
+                WEBHOOK_URL="http://$public_dns:3000/webhook"
+                ;;
+            3)
+                read -p "Do you want to setup nginx with SSL now? (y/n): " setup_ssl
+                if [[ $setup_ssl == "y" || $setup_ssl == "Y" ]]; then
+                    setup_nginx_ssl
+                    return 0
+                else
+                    print_warning "You can setup nginx later with: sudo apt install nginx certbot python3-certbot-nginx"
+                    WEBHOOK_URL="http://$public_ip:3000/webhook"
+                fi
+                ;;
+            *)
+                WEBHOOK_URL="http://$public_ip:3000/webhook"
+                ;;
+        esac
+        
+        print_success "Webhook URL: $WEBHOOK_URL"
+        
+        # Setup systemd service
+        read -p "Do you want to setup Ansieyes as a systemd service? (y/n): " setup_service
+        if [[ $setup_service == "y" || $setup_service == "Y" ]]; then
+            setup_systemd_service
+        fi
+        
+        # Security Group instructions
+        print_header "Security Group Configuration"
+        print_warning "IMPORTANT: Configure your EC2 Security Group"
+        echo
+        echo "AWS Console → EC2 → Security Groups → Your Instance Security Group"
+        echo
+        echo "Add these inbound rules:"
+        if [[ $url_choice == "3" ]]; then
+            echo "  - Type: HTTP, Port: 80, Source: 0.0.0.0/0"
+            echo "  - Type: HTTPS, Port: 443, Source: 0.0.0.0/0"
+        else
+            echo "  - Type: Custom TCP, Port: 3000, Source: 0.0.0.0/0"
+            echo "  - (Or restrict to GitHub webhook IPs for better security)"
+        fi
+        echo
+        
+        print_success "EC2 deployment configuration complete!"
+        echo
+        print_info "Next steps:"
+        echo "1. Update GitHub App webhook URL to: $WEBHOOK_URL"
+        echo "2. Configure Security Group as shown above"
+        echo "3. Test with: @_ab_triage or @_ab_prreview"
+        
+    else
+        print_warning "Not running on EC2"
+        print_info "For EC2 deployment:"
+        echo "1. SSH into your EC2 instance"
+        echo "2. Run this script there: ./setup-ansieyes.sh"
+        echo "3. Choose option 3 (EC2 Production Deployment)"
+        echo
+        print_info "Alternative: See docs/AWS_DEPLOYMENT.md for manual setup"
     fi
     
     echo
@@ -444,6 +655,14 @@ print_completion_message() {
 show_menu() {
     print_header "Ansieyes Setup Script"
     
+    # Detect environment
+    local is_ec2=false
+    if detect_ec2; then
+        is_ec2=true
+        print_success "Detected EC2 environment"
+        echo
+    fi
+    
     echo "Choose your setup option:"
     echo
     echo "1) Complete Setup (Recommended)"
@@ -451,13 +670,18 @@ show_menu() {
     echo "   - Setup AI-Issue-Triage"
     echo "   - Configure environment"
     echo "   - Test setup"
+    if $is_ec2; then
+        echo "   - EC2 production deployment"
+    fi
     echo
     echo "2) Quick Setup (Dependencies already installed)"
     echo "   - Configure environment only"
     echo "   - Test setup"
     echo
-    echo "3) AWS Deployment"
-    echo "   - Deploy to AWS ECS"
+    echo "3) EC2 Production Deployment"
+    echo "   - Setup systemd service"
+    echo "   - Configure nginx + SSL (optional)"
+    echo "   - Get webhook URL"
     echo
     echo "4) Test Existing Setup"
     echo "   - Verify installation"
@@ -474,7 +698,7 @@ show_menu() {
             quick_setup
             ;;
         3)
-            deploy_to_aws
+            deploy_to_ec2
             ;;
         4)
             test_setup
@@ -499,7 +723,20 @@ complete_setup() {
     setup_github_app_instructions
     configure_environment
     test_setup
-    start_with_ngrok
+    
+    # Check if on EC2 for production deployment
+    if detect_ec2; then
+        echo
+        read -p "Detected EC2. Setup for production now? (y/n): " setup_prod
+        if [[ $setup_prod == "y" || $setup_prod == "Y" ]]; then
+            deploy_to_ec2
+        else
+            start_with_ngrok
+        fi
+    else
+        start_with_ngrok
+    fi
+    
     print_completion_message
 }
 
@@ -522,10 +759,16 @@ main() {
     echo "This script will help you set up Ansieyes with AI-powered"
     echo "PR review and issue triage capabilities."
     echo
-    print_warning "Make sure you have:"
-    echo "  - GitHub account with admin access"
-    echo "  - Gemini API key ready"
-    echo "  - (Optional) AWS account for deployment"
+    print_warning "What you need:"
+    echo "  ✓ GitHub account with admin access"
+    echo "  ✓ Gemini API key (https://makersuite.google.com/app/apikey)"
+    echo "  ✓ For EC2: SSH access to your instance"
+    echo
+    print_info "What you DON'T need:"
+    echo "  ✗ AWS credentials (not required for EC2 setup)"
+    echo "  ✗ AWS CLI (not needed)"
+    echo
+    print_info "The script runs locally and only installs software."
     echo
     read -p "Press Enter to continue..."
     

@@ -305,65 +305,110 @@ class IssueTriager:
                 return result
         
         # Step 2: Clone repository and run Librarian
-        with tempfile.TemporaryDirectory() as temp_dir:
-            if not repo_path:
-                repo_path = os.path.join(temp_dir, 'repo')
-                
-                try:
-                    logger.info(f"Cloning repository: {repo_url}")
-                    subprocess.run(
-                        ['git', 'clone', '--depth', '1', repo_url, repo_path],
-                        capture_output=True,
-                        check=True
-                    )
-                except subprocess.CalledProcessError as e:
-                    logger.error(f"Git clone failed: {e}")
-                    result["error"] = f"Failed to clone repository: {e}"
-                    return result
-            else:
-                logger.info(f"Using existing repo path: {repo_path}")
+        # Note: Using outer temp_dir from app.py if repo_path provided
+        cleanup_needed = False
+        local_temp_dir = None
+        
+        if not repo_path:
+            # Create our own temp directory if no repo_path provided
+            local_temp_dir = tempfile.mkdtemp()
+            repo_path = os.path.join(local_temp_dir, 'repo')
+            cleanup_needed = True
             
             try:
-                
-                # Run Librarian
-                logger.info("Running Librarian (Pass 1: File Identification)...")
-                result["librarian"] = self.run_librarian(title, description, repo_path)
-                
-                if not result["librarian"].get("relevant_files"):
-                    logger.warning("No relevant files identified")
-                    return result
-                
-                # Step 3: Generate targeted repomix and run Surgeon
-                logger.info("Generating targeted repomix...")
-                targeted_repomix = os.path.join(temp_dir, 'targeted-repomix.txt')
-                
-                # Generate repomix with identified files
-                file_list = result["librarian"]["relevant_files"]
-                include_args = []
-                for file in file_list:
-                    include_args.extend(['--include', file])
-                
-                cmd = ['repomix', '--remote', repo_url, '--style', 'plain', 
-                       '--output', targeted_repomix] + include_args
-                
-                subprocess.run(cmd, capture_output=True)
-                
-                if os.path.exists(targeted_repomix):
-                    # Run Surgeon
-                    logger.info("Running Surgeon (Pass 2: Deep Analysis)...")
-                    result["surgeon"] = self.run_surgeon(
-                        title, description, targeted_repomix
-                    )
-                else:
-                    logger.error("Failed to generate targeted repomix")
-                    result["surgeon"] = {"error": "Failed to generate targeted repomix"}
-                
+                logger.info(f"Cloning repository: {repo_url}")
+                subprocess.run(
+                    ['git', 'clone', '--depth', '1', repo_url, repo_path],
+                    capture_output=True,
+                    check=True,
+                    timeout=300  # 5 minute timeout
+                )
             except subprocess.CalledProcessError as e:
                 logger.error(f"Git clone failed: {e}")
                 result["error"] = f"Failed to clone repository: {e}"
+                if cleanup_needed and local_temp_dir:
+                    import shutil
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                return result
+            except subprocess.TimeoutExpired:
+                logger.error("Git clone timeout")
+                result["error"] = "Repository clone timeout"
+                if cleanup_needed and local_temp_dir:
+                    import shutil
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                return result
+        else:
+            logger.info(f"Using existing repo path: {repo_path}")
+        
+        try:
+            # Run Librarian
+            logger.info("Running Librarian (Pass 1: File Identification)...")
+            result["librarian"] = self.run_librarian(title, description, repo_path)
+            
+            if not result["librarian"].get("relevant_files"):
+                logger.warning("No relevant files identified")
+                if cleanup_needed and local_temp_dir:
+                    import shutil
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                return result
+            
+            # Step 3: Generate targeted repomix and run Surgeon
+            logger.info("Generating targeted repomix...")
+            
+            # Create a temp file for targeted repomix (will be cleaned up)
+            targeted_repomix_fd, targeted_repomix_path = tempfile.mkstemp(suffix='.txt')
+            os.close(targeted_repomix_fd)  # Close file descriptor
+            
+            # Generate repomix with identified files
+            file_list = result["librarian"]["relevant_files"]
+            include_args = []
+            for file in file_list:
+                include_args.extend(['--include', file])
+            
+            cmd = ['repomix', '--remote', repo_url, '--style', 'plain', 
+                   '--output', targeted_repomix_path] + include_args
+            
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=300, check=True)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                logger.warning(f"Targeted repomix failed: {e}, trying fallback")
+                # Fallback: use full repo
+                subprocess.run(['repomix', '--remote', repo_url, '--style', 'plain',
+                              '--output', targeted_repomix_path], 
+                             capture_output=True, timeout=300)
+            
+            if os.path.exists(targeted_repomix_path) and os.path.getsize(targeted_repomix_path) > 0:
+                # Run Surgeon
+                logger.info("Running Surgeon (Pass 2: Deep Analysis)...")
+                result["surgeon"] = self.run_surgeon(
+                    title, description, targeted_repomix_path
+                )
+            else:
+                logger.error("Failed to generate targeted repomix")
+                result["surgeon"] = {"error": "Failed to generate targeted repomix"}
+            
+            # CLEANUP: Remove targeted repomix file
+            try:
+                os.unlink(targeted_repomix_path)
+                logger.debug(f"Cleaned up targeted repomix: {targeted_repomix_path}")
             except Exception as e:
-                logger.error(f"Triage failed: {e}")
-                result["error"] = str(e)
+                logger.warning(f"Failed to clean up repomix file: {e}")
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Git clone failed: {e}")
+            result["error"] = f"Failed to clone repository: {e}"
+        except Exception as e:
+            logger.error(f"Triage failed: {e}")
+            result["error"] = str(e)
+        finally:
+            # CLEANUP: Remove local temp directory if we created it
+            if cleanup_needed and local_temp_dir:
+                try:
+                    import shutil
+                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                    logger.debug(f"Cleaned up temp directory: {local_temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp directory: {e}")
         
         return result
 

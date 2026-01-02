@@ -27,6 +27,10 @@
 
 **Time to setup:** 5-10 minutes with automated script
 
+**Where to run:**
+- **Development**: Your laptop + ngrok (for testing)
+- **Production**: EC2/VPS/server with public IP (for 24/7 operation)
+
 ---
 
 ## Automated Setup
@@ -415,12 +419,53 @@ cd Ansieyes
    - AI-Issue-Triage
    - Configure environment
 
-5. **Set GitHub webhook URL to EC2**:
-   - Use EC2's public IP: `http://YOUR-EC2-IP:3000/webhook`
-   - Or use domain: `https://your-domain.com/webhook`
-   - **Don't use ngrok for production!**
+5. **Get your EC2 webhook URL**:
 
-6. **Keep bot running**:
+   **Option A: Use EC2 Public IP (Quick)**
+   ```bash
+   # On EC2, get your public IP
+   curl ifconfig.me
+   # Example output: 54.123.45.67
+   
+   # Your webhook URL is:
+   # http://54.123.45.67:3000/webhook
+   ```
+   
+   **Option B: Use EC2 Public DNS (Better)**
+   ```bash
+   # Find in AWS Console → EC2 → Instance → Public IPv4 DNS
+   # Example: ec2-54-123-45-67.compute-1.amazonaws.com
+   
+   # Your webhook URL is:
+   # http://ec2-54-123-45-67.compute-1.amazonaws.com:3000/webhook
+   ```
+   
+   **Option C: Use Elastic IP + Domain (Best for Production)**
+   ```bash
+   # 1. In AWS Console, allocate Elastic IP
+   # 2. Associate it with your EC2 instance
+   # 3. Point your domain to the Elastic IP (Route53 or your DNS)
+   # Example: ansieyes.yourdomain.com → 54.123.45.67
+   
+   # Your webhook URL is:
+   # https://ansieyes.yourdomain.com/webhook (with SSL)
+   ```
+
+6. **Configure GitHub webhook**:
+   - Go to your GitHub App settings
+   - Set Webhook URL to one of the URLs above
+   - For Option C with domain, set up nginx with SSL (see below)
+
+7. **Important: Open port 3000 in EC2 Security Group**:
+   ```
+   AWS Console → EC2 → Security Groups → Edit inbound rules
+   Add rule:
+   - Type: Custom TCP
+   - Port: 3000
+   - Source: 0.0.0.0/0 (or restrict to GitHub IPs)
+   ```
+
+8. **Keep bot running**:
 ```bash
 # Option A: Use screen
 screen -S ansieyes
@@ -458,6 +503,50 @@ WantedBy=multi-user.target
 - Use HTTPS with reverse proxy (nginx/Apache)
 - Keep credentials secure
 - Regular updates
+
+**Optional: Setup nginx with SSL (Recommended for production)**
+
+```bash
+# Install nginx and certbot
+sudo apt update
+sudo apt install -y nginx certbot python3-certbot-nginx
+
+# Create nginx config
+sudo nano /etc/nginx/sites-available/ansieyes
+
+# Paste this:
+server {
+    server_name ansieyes.yourdomain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+
+# Enable site
+sudo ln -s /etc/nginx/sites-available/ansieyes /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+
+# Get SSL certificate (free from Let's Encrypt)
+sudo certbot --nginx -d ansieyes.yourdomain.com
+
+# Now your webhook URL is:
+# https://ansieyes.yourdomain.com/webhook
+```
+
+**After nginx setup:**
+- Change Security Group: Close port 3000, open ports 80 and 443
+- Bot still runs on port 3000 internally
+- Nginx forwards requests from 443 → 3000
+- GitHub webhooks use: `https://ansieyes.yourdomain.com/webhook`
 
 For detailed AWS setup, see `docs/AWS_DEPLOYMENT.md` or use the setup script:
 
