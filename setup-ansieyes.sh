@@ -63,6 +63,7 @@ check_prerequisites() {
     print_header "Checking Prerequisites"
     
     local missing_deps=0
+    local needs_install=()
     
     # Check Python
     if check_command python3; then
@@ -70,7 +71,7 @@ check_prerequisites() {
         print_info "Python version: $python_version"
     else
         print_error "python3 is required but not installed"
-        print_info "Install with: sudo apt install python3"
+        needs_install+=("python3")
         missing_deps=1
     fi
     
@@ -85,14 +86,16 @@ check_prerequisites() {
         print_info "pip version: $pip_version"
     else
         print_error "pip is required but not installed"
-        print_info "Install with: sudo apt install python3-pip"
+        needs_install+=("python3-pip")
         missing_deps=1
     fi
     
     # Check git
-    if ! check_command git; then
+    if check_command git; then
+        print_success "git is installed"
+    else
         print_error "git is required but not installed"
-        print_info "Install with: sudo apt install git"
+        needs_install+=("git")
         missing_deps=1
     fi
     
@@ -102,6 +105,7 @@ check_prerequisites() {
         print_info "Node.js version: $node_version"
     else
         print_warning "Node.js is not installed - will attempt to install"
+        needs_install+=("nodejs")
     fi
     
     # Check npm
@@ -110,14 +114,93 @@ check_prerequisites() {
         print_info "npm version: $npm_version"
     else
         print_warning "npm is not installed - will install with Node.js"
+        if [[ ! " ${needs_install[@]} " =~ " nodejs " ]]; then
+            needs_install+=("npm")
+        fi
     fi
     
     if [ $missing_deps -eq 1 ]; then
-        print_error "Some prerequisites are missing. Please install them first."
-        exit 1
+        echo
+        print_error "Some critical prerequisites are missing!"
+        echo
+        print_warning "Would you like to install them automatically? (requires sudo)"
+        echo "Missing packages: ${needs_install[*]}"
+        echo
+        read -p "Install missing packages? (y/n): " install_deps
+        
+        if [[ $install_deps == "y" || $install_deps == "Y" ]]; then
+            install_system_dependencies "${needs_install[@]}"
+        else
+            echo
+            print_info "Manual installation commands:"
+            echo
+            if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+                if command -v apt-get &> /dev/null; then
+                    echo "  sudo apt update"
+                    echo "  sudo apt install -y ${needs_install[*]}"
+                elif command -v yum &> /dev/null; then
+                    echo "  sudo yum install -y ${needs_install[*]}"
+                fi
+            elif [[ "$OSTYPE" == "darwin"* ]]; then
+                echo "  brew install ${needs_install[*]}"
+            fi
+            echo
+            exit 1
+        fi
     fi
     
     print_success "All critical prerequisites are installed"
+    echo
+}
+
+install_system_dependencies() {
+    local packages=("$@")
+    
+    print_header "Installing System Dependencies"
+    
+    print_info "Installing: ${packages[*]}"
+    echo
+    
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if command -v apt-get &> /dev/null; then
+            print_info "Using apt (Debian/Ubuntu)..."
+            sudo apt update
+            if sudo apt install -y "${packages[@]}"; then
+                print_success "Packages installed successfully"
+            else
+                print_error "Failed to install some packages"
+                exit 1
+            fi
+        elif command -v yum &> /dev/null; then
+            print_info "Using yum (RHEL/CentOS/Amazon Linux)..."
+            if sudo yum install -y "${packages[@]}"; then
+                print_success "Packages installed successfully"
+            else
+                print_error "Failed to install some packages"
+                exit 1
+            fi
+        else
+            print_error "Unsupported package manager"
+            exit 1
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if command -v brew &> /dev/null; then
+            print_info "Using Homebrew (macOS)..."
+            if brew install "${packages[@]}"; then
+                print_success "Packages installed successfully"
+            else
+                print_error "Failed to install some packages"
+                exit 1
+            fi
+        else
+            print_error "Homebrew not found. Please install from: https://brew.sh"
+            exit 1
+        fi
+    else
+        print_error "Unsupported operating system"
+        exit 1
+    fi
+    
     echo
 }
 
