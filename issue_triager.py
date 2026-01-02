@@ -286,7 +286,7 @@ class IssueTriager:
                 # Resolve path relative to repo root
                 full_prompt_path = os.path.join(repo_path, prompt_path)
                 if os.path.exists(full_prompt_path):
-                    cmd.extend(['--prompt-file', full_prompt_path])
+                    cmd.extend(['--custom-prompt', full_prompt_path])
                     logger.info(f"Using custom prompt from: {prompt_path}")
                 else:
                     logger.warning(f"Custom prompt file not found: {full_prompt_path}")
