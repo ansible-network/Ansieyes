@@ -584,10 +584,44 @@ For PR reviews, please use `@_ab_prreview` instead.
         except:
             pass
         
-        # Add/Update labels based on analysis
-        if triage_result.get("surgeon"):
+        # Add/Update labels based on analysis results
+        labels_to_add = []
+        
+        # Remove old Type and Severity labels first (do this for all cases)
+        try:
+            existing_labels = [label.name for label in issue.labels]
+            labels_to_remove = []
+            
+            for label in existing_labels:
+                if label.startswith("Type :") or label.startswith("Severity :"):
+                    labels_to_remove.append(label)
+            
+            for label in labels_to_remove:
+                issue.remove_from_labels(label)
+                logger.info(f"Removed old label: {label}")
+        except Exception as e:
+            logger.warning(f"Could not remove old labels: {e}")
+        
+        # Case 1: Prompt injection (HIGH/CRITICAL) - blocked
+        if triage_result.get("prompt_injection_check"):
+            injection = triage_result["prompt_injection_check"]
+            risk_level = injection.get("risk_level", "").lower()
+            
+            if injection.get("is_injection") and risk_level in ['high', 'critical']:
+                labels_to_add.append("security-alert")
+                labels_to_add.append("invalid")
+                labels_to_add.append("ai-triaged")
+                logger.info("Adding security and invalid labels for prompt injection")
+        
+        # Case 2: Duplicate issue detected
+        elif triage_result.get("duplicate_check", {}).get("is_duplicate"):
+            labels_to_add.append("duplicate")
+            labels_to_add.append("ai-triaged")
+            logger.info("Adding duplicate label")
+        
+        # Case 3: Normal triage with Surgeon results
+        elif triage_result.get("surgeon"):
             surgeon = triage_result["surgeon"]
-            labels_to_add = []
             
             if not surgeon.get("error") and "formatted_output" in surgeon:
                 # Extract type and severity from formatted text output
@@ -602,22 +636,7 @@ For PR reviews, please use `@_ab_prreview` instead.
                 severity_match = re.search(r'\*\*Severity:\*\*\s+`([^`]+)`', formatted_text)
                 severity = severity_match.group(1).lower() if severity_match else ""
                 
-                # Remove old Type and Severity labels first
-                try:
-                    existing_labels = [label.name for label in issue.labels]
-                    labels_to_remove = []
-                    
-                    for label in existing_labels:
-                        if label.startswith("Type :") or label.startswith("Severity :"):
-                            labels_to_remove.append(label)
-                    
-                    for label in labels_to_remove:
-                        issue.remove_from_labels(label)
-                        logger.info(f"Removed old label: {label}")
-                except Exception as e:
-                    logger.warning(f"Could not remove old labels: {e}")
-                
-                # Add new labels
+                # Add Type and Severity labels
                 if issue_type:
                     type_label = f"Type : {issue_type.capitalize()}"
                     labels_to_add.append(type_label)
@@ -627,20 +646,14 @@ For PR reviews, please use `@_ab_prreview` instead.
                     labels_to_add.append(severity_label)
                 
                 labels_to_add.append("ai-triaged")
-                
-                if labels_to_add:
-                    try:
-                        issue.add_to_labels(*labels_to_add)
-                        logger.info(f"Added labels: {labels_to_add}")
-                    except Exception as e:
-                        logger.warning(f"Could not add labels: {e}")
         
-        # Check for duplicate
-        if triage_result.get("duplicate_check", {}).get("is_duplicate"):
+        # Apply all labels
+        if labels_to_add:
             try:
-                issue.add_to_labels("duplicate")
+                issue.add_to_labels(*labels_to_add)
+                logger.info(f"Added labels: {labels_to_add}")
             except Exception as e:
-                logger.warning(f"Could not add duplicate label: {e}")
+                logger.warning(f"Could not add labels: {e}")
         
         logger.info(f"Triage completed for issue #{issue_number}")
         
