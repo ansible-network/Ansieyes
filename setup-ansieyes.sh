@@ -389,38 +389,48 @@ setup_ai_issue_triage() {
     
     # Check if we're in an externally-managed environment
     if python3 -m pip --version &>/dev/null; then
-        # Try regular pip install first (without --ignore-installed for better performance)
-        install_output=$(pip3 install --no-warn-script-location -r requirements.txt 2>&1)
-        install_exit_code=$?
+        echo ""
         
-        if [ $install_exit_code -eq 0 ]; then
+        # Try regular pip install first (without --ignore-installed for better performance)
+        # Use a temporary file to capture stderr while showing stdout
+        temp_err=$(mktemp)
+        if pip3 install --no-warn-script-location -r requirements.txt 2> "$temp_err"; then
+            rm -f "$temp_err"
             print_success "AI-Issue-Triage dependencies installed"
-        elif echo "$install_output" | grep -q "externally-managed-environment"; then
-            print_warning "Externally-managed Python environment detected"
-            print_info "Retrying with --break-system-packages flag"
-            
-            if pip3 install --break-system-packages --no-warn-script-location -r requirements.txt; then
-                print_success "AI-Issue-Triage dependencies installed"
-            else
-                print_error "Failed to install AI-Issue-Triage dependencies"
-                print_info "Try manually: cd $ai_triage_path && pip3 install --break-system-packages -r requirements.txt"
-                exit 1
-            fi
-        elif echo "$install_output" | grep -q "Cannot uninstall"; then
-            print_warning "Conflict with system packages detected (Debian-managed packages)"
-            print_info "Retrying with --break-system-packages and --ignore-installed flags"
-            
-            if pip3 install --break-system-packages --ignore-installed --no-warn-script-location -r requirements.txt; then
-                print_success "AI-Issue-Triage dependencies installed"
-            else
-                print_error "Failed to install AI-Issue-Triage dependencies"
-                exit 1
-            fi
         else
-            print_error "Failed to install AI-Issue-Triage dependencies"
-            echo "$install_output"
-            print_info "Try manually: cd $ai_triage_path && pip3 install -r requirements.txt"
-            exit 1
+            # Check what error occurred
+            error_output=$(cat "$temp_err")
+            rm -f "$temp_err"
+            
+            if echo "$error_output" | grep -q "externally-managed-environment"; then
+                print_warning "Externally-managed Python environment detected"
+                print_info "Retrying with --break-system-packages flag"
+                echo ""
+                
+                if pip3 install --break-system-packages --no-warn-script-location -r requirements.txt; then
+                    print_success "AI-Issue-Triage dependencies installed"
+                else
+                    print_error "Failed to install AI-Issue-Triage dependencies"
+                    print_info "Try manually: cd $ai_triage_path && pip3 install --break-system-packages -r requirements.txt"
+                    exit 1
+                fi
+            elif echo "$error_output" | grep -q "Cannot uninstall"; then
+                print_warning "Conflict with system packages detected (Debian-managed packages)"
+                print_info "Retrying with --break-system-packages and --ignore-installed flags"
+                echo ""
+                
+                if pip3 install --break-system-packages --ignore-installed --no-warn-script-location -r requirements.txt; then
+                    print_success "AI-Issue-Triage dependencies installed"
+                else
+                    print_error "Failed to install AI-Issue-Triage dependencies"
+                    exit 1
+                fi
+            else
+                print_error "Failed to install AI-Issue-Triage dependencies"
+                echo "$error_output"
+                print_info "Try manually: cd $ai_triage_path && pip3 install -r requirements.txt"
+                exit 1
+            fi
         fi
     else
         print_error "pip not available"
@@ -448,39 +458,48 @@ install_ansieyes_dependencies() {
     # Try pip3 first, then pip
     if command -v pip3 &> /dev/null; then
         print_info "Using pip3..."
+        echo ""
         
         # First, try a simple install without --ignore-installed (faster, avoids reinstalling shared deps)
-        install_output=$(pip3 install --no-warn-script-location -r requirements.txt 2>&1)
-        install_exit_code=$?
-        
-        if [ $install_exit_code -eq 0 ]; then
+        # Use a temporary file to capture stderr while showing stdout
+        temp_err=$(mktemp)
+        if pip3 install --no-warn-script-location -r requirements.txt 2> "$temp_err"; then
+            rm -f "$temp_err"
             print_success "Dependencies installed successfully"
-        elif echo "$install_output" | grep -q "externally-managed-environment"; then
-            print_warning "Externally-managed Python environment detected"
-            print_info "Retrying with --break-system-packages flag"
-            
-            if pip3 install --break-system-packages --no-warn-script-location -r requirements.txt; then
-                print_success "Dependencies installed successfully"
-            else
-                print_error "Failed to install dependencies"
-                print_info "Try manually: pip3 install --break-system-packages -r requirements.txt"
-                exit 1
-            fi
-        elif echo "$install_output" | grep -q "Cannot uninstall"; then
-            print_warning "Conflict with system packages detected"
-            print_info "Retrying with --break-system-packages and --ignore-installed flags"
-            
-            if pip3 install --break-system-packages --ignore-installed --no-warn-script-location -r requirements.txt; then
-                print_success "Dependencies installed successfully"
-            else
-                print_error "Failed to install dependencies"
-                exit 1
-            fi
         else
-            print_error "Failed to install dependencies"
-            echo "$install_output"
-            print_info "Try manually: pip3 install -r requirements.txt"
-            exit 1
+            # Check what error occurred
+            error_output=$(cat "$temp_err")
+            rm -f "$temp_err"
+            
+            if echo "$error_output" | grep -q "externally-managed-environment"; then
+                print_warning "Externally-managed Python environment detected"
+                print_info "Retrying with --break-system-packages flag"
+                echo ""
+                
+                if pip3 install --break-system-packages --no-warn-script-location -r requirements.txt; then
+                    print_success "Dependencies installed successfully"
+                else
+                    print_error "Failed to install dependencies"
+                    print_info "Try manually: pip3 install --break-system-packages -r requirements.txt"
+                    exit 1
+                fi
+            elif echo "$error_output" | grep -q "Cannot uninstall"; then
+                print_warning "Conflict with system packages detected"
+                print_info "Retrying with --break-system-packages and --ignore-installed flags"
+                echo ""
+                
+                if pip3 install --break-system-packages --ignore-installed --no-warn-script-location -r requirements.txt; then
+                    print_success "Dependencies installed successfully"
+                else
+                    print_error "Failed to install dependencies"
+                    exit 1
+                fi
+            else
+                print_error "Failed to install dependencies"
+                echo "$error_output"
+                print_info "Try manually: pip3 install -r requirements.txt"
+                exit 1
+            fi
         fi
     elif command -v pip &> /dev/null; then
         print_info "Using pip..."
