@@ -69,21 +69,30 @@ check_prerequisites() {
         python_version=$(python3 --version)
         print_info "Python version: $python_version"
     else
+        print_error "python3 is required but not installed"
+        print_info "Install with: sudo apt install python3"
         missing_deps=1
     fi
     
     # Check pip
-    if check_command pip; then
-        print_success "pip is installed"
-    elif check_command pip3; then
+    if check_command pip3; then
         print_success "pip3 is installed"
-        alias pip=pip3
+        pip_version=$(pip3 --version)
+        print_info "pip version: $pip_version"
+    elif check_command pip; then
+        print_success "pip is installed"
+        pip_version=$(pip --version)
+        print_info "pip version: $pip_version"
     else
+        print_error "pip is required but not installed"
+        print_info "Install with: sudo apt install python3-pip"
         missing_deps=1
     fi
     
     # Check git
     if ! check_command git; then
+        print_error "git is required but not installed"
+        print_info "Install with: sudo apt install git"
         missing_deps=1
     fi
     
@@ -212,7 +221,29 @@ setup_ai_issue_triage() {
     git checkout feature/pr-analyzer || git checkout main
     
     print_info "Installing AI-Issue-Triage dependencies..."
-    pip install -r requirements.txt
+    
+    # Try pip3 first, then pip
+    if command -v pip3 &> /dev/null; then
+        if pip3 install -r requirements.txt; then
+            print_success "AI-Issue-Triage dependencies installed"
+        else
+            print_error "Failed to install AI-Issue-Triage dependencies"
+            print_info "Try manually: cd $ai_triage_path && pip3 install -r requirements.txt"
+            exit 1
+        fi
+    elif command -v pip &> /dev/null; then
+        if pip install -r requirements.txt; then
+            print_success "AI-Issue-Triage dependencies installed"
+        else
+            print_error "Failed to install AI-Issue-Triage dependencies"
+            print_info "Try manually: cd $ai_triage_path && pip install -r requirements.txt"
+            exit 1
+        fi
+    else
+        print_error "Neither pip nor pip3 found"
+        print_info "Please install pip first: sudo apt install python3-pip"
+        exit 1
+    fi
     
     export AI_TRIAGE_PATH="$ai_triage_path"
     print_success "AI-Issue-Triage installed at: $ai_triage_path"
@@ -224,10 +255,35 @@ setup_ai_issue_triage() {
 install_ansieyes_dependencies() {
     print_header "Installing Ansieyes Dependencies"
     
-    print_info "Installing Python packages..."
-    pip install -r requirements.txt
+    cd "$SCRIPT_DIR"
     
-    print_success "Dependencies installed successfully"
+    print_info "Installing Python packages from requirements.txt..."
+    
+    # Try pip3 first, then pip
+    if command -v pip3 &> /dev/null; then
+        print_info "Using pip3..."
+        if pip3 install -r requirements.txt; then
+            print_success "Dependencies installed successfully"
+        else
+            print_error "Failed to install dependencies"
+            print_info "Try manually: pip3 install -r requirements.txt"
+            exit 1
+        fi
+    elif command -v pip &> /dev/null; then
+        print_info "Using pip..."
+        if pip install -r requirements.txt; then
+            print_success "Dependencies installed successfully"
+        else
+            print_error "Failed to install dependencies"
+            print_info "Try manually: pip install -r requirements.txt"
+            exit 1
+        fi
+    else
+        print_error "Neither pip nor pip3 found"
+        print_info "Please install pip first: sudo apt install python3-pip"
+        exit 1
+    fi
+    
     echo
 }
 
