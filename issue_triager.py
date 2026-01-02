@@ -232,7 +232,8 @@ class IssueTriager:
         self,
         title: str,
         description: str,
-        repomix_file: str
+        repomix_file: str,
+        config: Optional[Dict] = None
     ) -> Dict:
         """
         Pass 2: Surgeon - Deep analysis with targeted files
@@ -241,12 +242,15 @@ class IssueTriager:
             title: Issue title
             description: Issue description
             repomix_file: Path to repomix output file with targeted code
+            config: Triage configuration from triage.config.json
             
         Returns:
             Dictionary with analysis results
         """
         if not self.api_key:
             return {"error": "API key not configured"}
+        
+        config = config or {}
         
         try:
             # Create output file
@@ -257,6 +261,7 @@ class IssueTriager:
             env = os.environ.copy()
             env['GEMINI_API_KEY'] = self.api_key
             
+            # Build command with config options
             cmd = [
                 'python3', '-m', 'cli.analyze',
                 '--title', title,
@@ -266,6 +271,24 @@ class IssueTriager:
                 '--format', 'json',
                 '--retries', '2'
             ]
+            
+            # Add custom model if specified in config
+            if config.get('gemini', {}).get('model'):
+                model = config['gemini']['model']
+                cmd.extend(['--model', model])
+                logger.info(f"Using custom Gemini model from config: {model}")
+            
+            # Add custom prompt if specified in config
+            if config.get('analysis', {}).get('custom_prompt_path'):
+                prompt_path = config['analysis']['custom_prompt_path']
+                # Resolve path relative to repo root
+                repo_path = os.path.dirname(os.path.dirname(repomix_file))
+                full_prompt_path = os.path.join(repo_path, prompt_path)
+                if os.path.exists(full_prompt_path):
+                    cmd.extend(['--prompt-file', full_prompt_path])
+                    logger.info(f"Using custom prompt from: {prompt_path}")
+                else:
+                    logger.warning(f"Custom prompt file not found: {full_prompt_path}")
             
             result = subprocess.run(
                 cmd,
@@ -292,7 +315,7 @@ class IssueTriager:
 
     def _generate_repomix_chunks(self, repo_path: str) -> str:
         """
-        Generate repomix chunks for a repository
+        Generate repomix chunks for a repository, respecting .omit-triage
         
         Args:
             repo_path: Path to cloned repository
@@ -304,14 +327,33 @@ class IssueTriager:
         os.makedirs(chunks_dir, exist_ok=True)
         
         try:
+            # Load .omit-triage to get excluded directories
+            omit_triage_path = os.path.join(repo_path, '.omit-triage')
+            excluded_dirs = set()
+            if os.path.exists(omit_triage_path):
+                with open(omit_triage_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            # Remove leading/trailing slashes
+                            excluded_dirs.add(line.strip('/'))
+                logger.info(f"Loaded .omit-triage exclusions: {excluded_dirs}")
+            
             # Get root directories
             repo_path_obj = Path(repo_path)
             root_dirs = [d for d in repo_path_obj.iterdir() 
                         if d.is_dir() and not d.name.startswith('.')]
             
-            # Generate chunk for each directory
+            # Generate chunk for each directory (excluding omitted ones)
             for dir_path in root_dirs:
-                clean_name = dir_path.name.replace('/', '_')
+                dir_name = dir_path.name
+                
+                # Skip if directory is in .omit-triage
+                if dir_name in excluded_dirs:
+                    logger.info(f"Skipping {dir_name} (excluded by .omit-triage)")
+                    continue
+                
+                clean_name = dir_name.replace('/', '_')
                 output_file = os.path.join(chunks_dir, f'{clean_name}.txt')
                 
                 # Try to find repomix (might be in npx, node_modules, or PATH)
@@ -319,7 +361,7 @@ class IssueTriager:
                 
                 cmd = [
                     *repomix_cmd,
-                    '--include', f'./{dir_path.name}/**',
+                    '--include', f'./{dir_name}/**',
                     '--style', 'plain',
                     '--compress',
                     '--remove-comments',
@@ -329,21 +371,45 @@ class IssueTriager:
                     '--output', output_file
                 ]
                 
-                logger.debug(f"Running repomix for {dir_path.name}: {' '.join(cmd)}")
+                logger.debug(f"Running repomix for {dir_name}: {' '.join(cmd)}")
                 result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True, timeout=300)
                 
                 if result.returncode != 0:
-                    logger.warning(f"Repomix failed for {dir_path.name}: {result.stderr}")
+                    logger.warning(f"Repomix failed for {dir_name}: {result.stderr}")
                 elif os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                    logger.info(f"Generated chunk for {dir_path.name}: {output_file}")
+                    logger.info(f"Generated chunk for {dir_name}: {output_file}")
                 else:
-                    logger.warning(f"Repomix generated empty file for {dir_path.name}")
+                    logger.warning(f"Repomix generated empty file for {dir_name}")
             
             return chunks_dir
             
         except Exception as e:
             logger.error(f"Error generating repomix chunks: {e}")
             return chunks_dir
+
+    def _load_triage_config(self, repo_path: str) -> Dict:
+        """
+        Load triage.config.json from repository
+        
+        Args:
+            repo_path: Path to cloned repository
+            
+        Returns:
+            Dictionary with config, or empty dict if not found
+        """
+        config_path = os.path.join(repo_path, 'triage.config.json')
+        if not os.path.exists(config_path):
+            logger.info("No triage.config.json found, using defaults")
+            return {}
+        
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            logger.info(f"Loaded triage.config.json: {config}")
+            return config
+        except Exception as e:
+            logger.error(f"Failed to load triage.config.json: {e}")
+            return {}
 
     def _find_repomix(self) -> List[str]:
         """
@@ -473,6 +539,9 @@ class IssueTriager:
             logger.info(f"Using existing repo path: {repo_path}")
         
         try:
+            # Load triage configuration
+            config = self._load_triage_config(repo_path)
+            
             # Run Librarian
             logger.info("Running Librarian (Pass 1: File Identification)...")
             result["librarian"] = self.run_librarian(title, description, repo_path)
@@ -510,10 +579,10 @@ class IssueTriager:
                              capture_output=True, timeout=300)
             
             if os.path.exists(targeted_repomix_path) and os.path.getsize(targeted_repomix_path) > 0:
-                # Run Surgeon
+                # Run Surgeon with config
                 logger.info("Running Surgeon (Pass 2: Deep Analysis)...")
                 result["surgeon"] = self.run_surgeon(
-                    title, description, targeted_repomix_path
+                    title, description, targeted_repomix_path, config
                 )
             else:
                 logger.error("Failed to generate targeted repomix")
