@@ -777,7 +777,8 @@ After=network.target
 Type=simple
 User=$user
 WorkingDirectory=$work_dir
-Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/home/$user/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="NODE_PATH=/usr/local/lib/node_modules"
 EnvironmentFile=$work_dir/.env
 ExecStart=/usr/bin/python3 $work_dir/app.py
 Restart=always

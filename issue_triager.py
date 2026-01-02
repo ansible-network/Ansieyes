@@ -244,8 +244,11 @@ class IssueTriager:
                 clean_name = dir_path.name.replace('/', '_')
                 output_file = os.path.join(chunks_dir, f'{clean_name}.txt')
                 
+                # Try to find repomix (might be in npx, node_modules, or PATH)
+                repomix_cmd = self._find_repomix()
+                
                 cmd = [
-                    'repomix',
+                    *repomix_cmd,
                     '--include', f'./{dir_path.name}/**',
                     '--style', 'plain',
                     '--compress',
@@ -256,13 +259,53 @@ class IssueTriager:
                     '--output', output_file
                 ]
                 
-                subprocess.run(cmd, cwd=repo_path, capture_output=True)
+                logger.debug(f"Running repomix for {dir_path.name}: {' '.join(cmd)}")
+                result = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    logger.warning(f"Repomix failed for {dir_path.name}: {result.stderr}")
+                elif os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                    logger.info(f"Generated chunk for {dir_path.name}: {output_file}")
+                else:
+                    logger.warning(f"Repomix generated empty file for {dir_path.name}")
             
             return chunks_dir
             
         except Exception as e:
             logger.error(f"Error generating repomix chunks: {e}")
             return chunks_dir
+
+    def _find_repomix(self) -> List[str]:
+        """
+        Find repomix command (could be global, npx, or local node_modules)
+        
+        Returns:
+            List containing the command to run repomix
+        """
+        import shutil
+        
+        # Check if repomix is in PATH
+        if shutil.which('repomix'):
+            return ['repomix']
+        
+        # Check if npx is available (can run from npm registry)
+        if shutil.which('npx'):
+            return ['npx', '-y', 'repomix']
+        
+        # Check common node_modules locations
+        possible_paths = [
+            '/usr/local/lib/node_modules/.bin/repomix',
+            os.path.expanduser('~/.local/lib/node_modules/.bin/repomix'),
+            '/home/ubuntu/.local/lib/node_modules/.bin/repomix',
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                return [path]
+        
+        # Default to repomix and hope it's in PATH
+        logger.warning("Could not find repomix, using default 'repomix' command")
+        return ['repomix']
 
     def triage_issue(
         self,
