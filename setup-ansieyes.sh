@@ -384,16 +384,26 @@ install_repomix() {
 setup_ai_issue_triage() {
     print_header "Setting up AI-Issue-Triage"
     
+    # Determine appropriate default based on actual user (not root if using sudo)
+    if [ -n "$SUDO_USER" ]; then
+        DEFAULT_USER="$SUDO_USER"
+        DEFAULT_HOME=$(eval echo "~$SUDO_USER")
+    else
+        DEFAULT_USER="$(whoami)"
+        DEFAULT_HOME="$HOME"
+    fi
+    
     echo "Where do you want to install AI-Issue-Triage?"
-    echo "Press Enter for default: $HOME/AI-Issue-Triage"
+    echo "Press Enter for default: $DEFAULT_HOME/AI-Issue-Triage"
+    echo "(Note: Ansieyes service will run as user: $DEFAULT_USER)"
     read -p "Path: " ai_triage_path
     
     if [ -z "$ai_triage_path" ]; then
-        ai_triage_path="$HOME/AI-Issue-Triage"
+        ai_triage_path="$DEFAULT_HOME/AI-Issue-Triage"
     fi
     
     # Expand ~ to home directory
-    ai_triage_path="${ai_triage_path/#\~/$HOME}"
+    ai_triage_path="${ai_triage_path/#\~/$DEFAULT_HOME}"
     
     if [ -d "$ai_triage_path" ]; then
         print_warning "Directory already exists: $ai_triage_path"
@@ -410,6 +420,12 @@ setup_ai_issue_triage() {
     
     print_info "Cloning AI-Issue-Triage repository..."
     git clone https://github.com/shvenkat-rh/AI-Issue-Triage.git "$ai_triage_path"
+    
+    # Fix ownership if running as sudo
+    if [ -n "$SUDO_USER" ]; then
+        print_info "Setting ownership to $SUDO_USER..."
+        chown -R "$SUDO_USER:$SUDO_USER" "$ai_triage_path"
+    fi
     
     print_info "Checking out feature/pr-analyzer branch..."
     cd "$ai_triage_path"
@@ -797,7 +813,8 @@ setup_systemd_service() {
     
     local service_file="/etc/systemd/system/ansieyes.service"
     local work_dir="$SCRIPT_DIR"
-    local user="$USER"
+    # Use actual user, not root if running with sudo
+    local user="${SUDO_USER:-$USER}"
     
     print_info "Creating systemd service file..."
     

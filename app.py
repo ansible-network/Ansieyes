@@ -530,11 +530,19 @@ For PR reviews, please use `@_ab_prreview` instead.
             return
         
         # Fetch existing issues for duplicate detection
+        # Only fetch OPEN issues that were created BEFORE the current issue
         logger.info("Fetching existing issues for duplicate detection...")
         existing_issues = []
         try:
+            current_issue_created_at = issue.created_at
             for existing_issue in repo.get_issues(state='open'):
-                if existing_issue.number != issue_number:
+                # Skip the current issue
+                if existing_issue.number == issue_number:
+                    continue
+                
+                # Only include issues created BEFORE the current issue
+                # This ensures issue A (older) won't be marked as duplicate of issue B (newer)
+                if existing_issue.created_at < current_issue_created_at:
                     existing_issues.append({
                         'issue_id': str(existing_issue.number),
                         'title': existing_issue.title,
@@ -543,6 +551,8 @@ For PR reviews, please use `@_ab_prreview` instead.
                         'created_date': existing_issue.created_at.isoformat(),
                         'url': existing_issue.html_url
                     })
+            
+            logger.info(f"Found {len(existing_issues)} older open issues for duplicate check")
         except Exception as e:
             logger.warning(f"Could not fetch existing issues: {e}")
         
