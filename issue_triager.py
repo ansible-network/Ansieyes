@@ -673,9 +673,9 @@ class IssueTriager:
                 comment = "# 🤖 Ansieyes Report\n\n"
                 comment += "## 🔍 Duplicate Issue Detected\n\n"
                 
-                dup_of = dup.get('duplicate_of', {})
-                dup_issue_id = dup_of.get('issue_id', 'unknown')
-                dup_title = dup_of.get('title', 'Unknown Title')
+                dup_of = dup.get('duplicate_of') or {}
+                dup_issue_id = dup_of.get('issue_id', 'unknown') if dup_of else 'unknown'
+                dup_title = dup_of.get('title', 'Unknown Title') if dup_of else 'Unknown Title'
                 
                 comment += f"This issue appears to be a duplicate of **#{dup_issue_id}**: *{dup_title}*\n\n"
                 
