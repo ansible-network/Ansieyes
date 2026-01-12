@@ -223,7 +223,13 @@ def webhook():
 
         if action == 'created':
             comment_body = payload.get('comment', {}).get('body', '').strip()
+            comment_author = payload.get('comment', {}).get('user', {}).get('login', '')
             installation_id = payload.get('installation', {}).get('id')
+            
+            # Ignore comments from the bot itself to prevent infinite loops
+            if comment_author.endswith('[bot]'):
+                logger.info(f"Ignoring comment from bot: {comment_author}")
+                return jsonify({"status": "ignored - bot comment"}), 200
             
             if not installation_id:
                 logger.error("No installation ID found in webhook payload")
