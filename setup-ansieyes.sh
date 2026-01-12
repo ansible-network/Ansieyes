@@ -1011,7 +1011,7 @@ deploy_to_ec2() {
         print_info "Next steps:"
         echo "1. Update GitHub App webhook URL to: $WEBHOOK_URL"
         echo "2. Configure Security Group as shown above"
-        echo "3. Test with: \\ansieyes_triage or \\ansieyes_prreview"
+        echo "3. Test with: \ansieyes_triage or \ansieyes_prreview"
         
     else
         print_warning "Not running on EC2"
@@ -1036,15 +1036,15 @@ print_completion_message() {
     echo "  1. Start the bot: python3 app.py"
     echo "  2. Setup ngrok: ngrok http 3000"
     echo "  3. Update GitHub App webhook URL"
-    echo "  4. Test with: \\ansieyes_triage (on issue) or \\ansieyes_prreview (on PR)"
+    echo "  4. Test with: \ansieyes_triage (on issue) or \ansieyes_prreview (on PR)"
     echo
     echo "Documentation:"
     echo "  - Complete Guide: COMPLETE_SETUP_GUIDE.md"
     echo "  - Configuration: triage.config.example.json"
     echo
     echo "Commands:"
-    echo "  - \\ansieyes_triage    - Issue triage (exact match only)"
-    echo "  - \\ansieyes_prreview  - PR review (exact match only)"
+    echo "  - \ansieyes_triage    - Issue triage (exact match only)"
+    echo "  - \ansieyes_prreview  - PR review (exact match only)"
     echo
     print_info "Remember: Commands must be exact with no extra text!"
     echo

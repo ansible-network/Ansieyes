@@ -52,6 +52,49 @@ pr_reviewer = PRReviewer(GEMINI_API_KEY)
 issue_triager = IssueTriager(GEMINI_API_KEY, AI_TRIAGE_PATH)
 
 
+def get_label_color(label_name):
+    """
+    Determine the color for a label based on its name/type.
+    Returns a hex color code without the # prefix.
+    """
+    label_lower = label_name.lower()
+    
+    # Type labels (matching AI-Issue-Triage output: Bug, Enhancement, Feature Request)
+    if label_lower.startswith('type'):
+        if 'bug' in label_lower:
+            return 'd73a4a'  # Red for bugs
+        elif 'enhancement' in label_lower:
+            return 'a2eeef'  # Light blue for enhancements
+        elif 'feature' in label_lower:
+            return '0e8a16'  # Green for feature requests
+        else:
+            return '1d76db'  # Default blue for other types
+    
+    # Severity labels
+    elif label_lower.startswith('severity'):
+        if 'critical' in label_lower:
+            return 'b60205'  # Dark red for critical
+        elif 'high' in label_lower:
+            return 'd93f0b'  # Orange-red for high
+        elif 'medium' in label_lower:
+            return 'fbca04'  # Yellow for medium
+        elif 'low' in label_lower:
+            return '0e8a16'  # Green for low
+        else:
+            return 'c5def5'  # Light blue for unknown severity
+    
+    # Special labels
+    elif 'duplicate' in label_lower:
+        return 'cfd3d7'  # Gray for duplicates
+    elif 'ai-triaged' in label_lower or 'ai-reviewed' in label_lower:
+        return '7057ff'  # Purple for AI-processed
+    elif 'prompt injection' in label_lower or 'blocked' in label_lower:
+        return 'b60205'  # Dark red for security issues
+    
+    # Default color for any other labels
+    return 'ededed'  # Light gray
+
+
 def verify_webhook_signature(payload_body, signature_header):
     """Verify GitHub webhook signature"""
     if not GITHUB_WEBHOOK_SECRET:
@@ -647,7 +690,10 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
                     
                     # Add Type and Severity labels
                     if issue_type:
-                        type_label = f"Type : {issue_type.capitalize()}"
+                        # Replace underscores with spaces and capitalize properly
+                        # e.g., "feature_request" -> "Feature request"
+                        formatted_type = issue_type.replace('_', ' ').title()
+                        type_label = f"Type : {formatted_type}"
                         labels_to_add.append(type_label)
                     
                     if severity:
@@ -656,9 +702,26 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
                     
                     labels_to_add.append("ai-triaged")
         
-        # Apply all new labels
+        # Apply all new labels (create them if they don't exist)
         if labels_to_add:
             try:
+                repo = issue.repository
+                # Get existing labels in the repo
+                existing_repo_labels = {label.name for label in repo.get_labels()}
+                
+                # Create any labels that don't exist
+                for label_name in labels_to_add:
+                    if label_name not in existing_repo_labels:
+                        # Determine color based on label type
+                        color = get_label_color(label_name)
+                        try:
+                            repo.create_label(name=label_name, color=color)
+                            logger.info(f"Created new label: {label_name} with color #{color}")
+                            existing_repo_labels.add(label_name)
+                        except Exception as e:
+                            logger.warning(f"Could not create label '{label_name}': {e}")
+                
+                # Now add all labels to the issue
                 issue.add_to_labels(*labels_to_add)
                 logger.info(f"Added new labels: {labels_to_add}")
             except Exception as e:
