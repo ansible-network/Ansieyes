@@ -6,3 +6,10 @@ PyGithub==2.1.1
 cryptography==41.0.7
 PyYAML==6.0.1
 
+# AI Issue Triage dependencies
+google-genai
+pydantic>=2.0.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pytector>=0.1.0
+

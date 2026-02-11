@@ -1,0 +1,39 @@
+{
+  "repository": {
+    "url": "https://github.com/your-org/your-repo.git",
+    "description": "Your repository description"
+  },
+  "triage": {
+    "enable_duplicate_detection": true,
+    "enable_security_check": true,
+    "auto_label": true,
+    "librarian": {
+      "model": "gemini-2.0-flash-001",
+      "max_files": 20
+    },
+    "surgeon": {
+      "model": "gemini-2.0-flash-001",
+      "max_retries": 2
+    }
+  },
+  "mentions": {
+    "triage_trigger": "\\ansieyes_triage",
+    "pr_review_trigger": "\\ansieyes_prreview"
+  },
+  "labels": {
+    "auto_apply": true,
+    "type_prefix": "Type : ",
+    "severity_prefix": "Severity : ",
+    "triaged_label": "ai-triaged",
+    "reviewed_label": "ai-reviewed"
+  },
+  "omit_directories": [
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    ".git"
+  ]
+}
+
+
