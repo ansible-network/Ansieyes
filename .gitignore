@@ -14,3 +14,8 @@ ENV/
 .DS_Store
 *.log
 
+# Local-only docs (keep on disk; do not commit)
+docs/ARCHITECTURE_KAFKA_EVALUATION.md
+docs/temp-Arch.md
+docs/WORKER_IMPLEMENTATION.md
+

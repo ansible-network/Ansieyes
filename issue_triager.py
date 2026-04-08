@@ -450,7 +450,8 @@ class IssueTriager:
         description: str,
         repo_url: str,
         existing_issues: Optional[List[Dict]] = None,
-        repo_path: Optional[str] = None
+        repo_path: Optional[str] = None,
+        skip_prompt_injection: bool = False,
     ) -> Dict:
         """
         Full two-pass triage of an issue
@@ -463,10 +464,13 @@ class IssueTriager:
             
         Returns:
             Dictionary with complete triage results including:
-            - prompt_injection_check: Prompt injection detection results
+            - prompt_injection_check: Prompt injection detection results (None if skipped)
             - duplicate_check: Duplicate detection results
             - librarian: File identification results
             - surgeon: Deep analysis results
+            
+        Args:
+            skip_prompt_injection: If True, do not run prompt injection detection or blocking.
         """
         result = {
             "prompt_injection_check": None,
@@ -476,21 +480,24 @@ class IssueTriager:
         }
         
         # Step 0: Check for prompt injection attempts
-        logger.info("Running prompt injection check...")
-        combined_text = f"{title}\n\n{description}"
-        injection_check = self.check_prompt_injection(combined_text)
-        result["prompt_injection_check"] = injection_check
-        
-        # Block only if HIGH or CRITICAL risk detected
-        risk_levels_to_block = ['high', 'critical']
-        if injection_check.get("is_injection") and injection_check.get("risk_level") in risk_levels_to_block:
-            logger.warning(f"High-risk prompt injection detected: {injection_check}")
-            result["error"] = "High-risk prompt injection attempt detected"
-            return result
-        
-        # Log but continue for MEDIUM/LOW risk
-        if injection_check.get("is_injection"):
-            logger.info(f"Low/medium risk patterns detected but continuing: {injection_check.get('risk_level')}")
+        if not skip_prompt_injection:
+            logger.info("Running prompt injection check...")
+            combined_text = f"{title}\n\n{description}"
+            injection_check = self.check_prompt_injection(combined_text)
+            result["prompt_injection_check"] = injection_check
+            
+            # Block only if HIGH or CRITICAL risk detected
+            risk_levels_to_block = ['high', 'critical']
+            if injection_check.get("is_injection") and injection_check.get("risk_level") in risk_levels_to_block:
+                logger.warning(f"High-risk prompt injection detected: {injection_check}")
+                result["error"] = "High-risk prompt injection attempt detected"
+                return result
+            
+            # Log but continue for MEDIUM/LOW risk
+            if injection_check.get("is_injection"):
+                logger.info(f"Low/medium risk patterns detected but continuing: {injection_check.get('risk_level')}")
+        else:
+            logger.info("Skipping prompt injection check (/ansieyes_triage_force)")
         
         # Step 1: Check for duplicates if existing issues provided
         if existing_issues:

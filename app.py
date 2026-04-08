@@ -39,6 +39,12 @@ AI_TRIAGE_PATH = os.getenv('AI_TRIAGE_PATH', '/Users/shvenkat/Documents/AI/AI-Is
 PORT = int(os.getenv('PORT', 3000))
 HOST = os.getenv('HOST', '0.0.0.0')
 
+# Comment triggers (exact body match; forward-slash style)
+CMD_TRIAGE = "/ansieyes_triage"
+CMD_TRIAGE_FORCE = "/ansieyes_triage_force"
+CMD_PR_REVIEW = "/ansieyes_prreview"
+BOT_TRIGGER_COMMANDS = (CMD_TRIAGE, CMD_TRIAGE_FORCE, CMD_PR_REVIEW)
+
 # Initialize Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -247,7 +253,7 @@ def webhook():
                 return jsonify({"error": "No installation ID"}), 400
 
             # Check for EXACT mention triggers (no extra text allowed)
-            is_bot_command = comment_body in ('\\ansieyes_triage', '\\ansieyes_prreview')
+            is_bot_command = comment_body in BOT_TRIGGER_COMMANDS
 
             if is_bot_command:
                 repo_full_name = payload.get('repository', {}).get('full_name')
@@ -281,16 +287,24 @@ def webhook():
                         logger.error(f"Failed to post unauthorized comment: {e}")
                     return jsonify({"status": "unauthorized"}), 403
 
-            if comment_body == '\\ansieyes_triage':
-                logger.info("Detected exact \\ansieyes_triage mention")
+            if comment_body == CMD_TRIAGE:
+                logger.info("Detected exact %s", CMD_TRIAGE)
                 try:
-                    handle_triage_mention(payload, installation_id)
+                    handle_triage_mention(payload, installation_id, skip_prompt_injection=False)
                 except Exception as e:
                     logger.error(f"Error processing triage mention: {e}")
                     return jsonify({"error": str(e)}), 500
+
+            elif comment_body == CMD_TRIAGE_FORCE:
+                logger.info("Detected exact %s", CMD_TRIAGE_FORCE)
+                try:
+                    handle_triage_mention(payload, installation_id, skip_prompt_injection=True)
+                except Exception as e:
+                    logger.error(f"Error processing force triage mention: {e}")
+                    return jsonify({"error": str(e)}), 500
                     
-            elif comment_body == '\\ansieyes_prreview':
-                logger.info("Detected exact \\ansieyes_prreview mention")
+            elif comment_body == CMD_PR_REVIEW:
+                logger.info("Detected exact %s", CMD_PR_REVIEW)
                 try:
                     handle_pr_review_mention(payload, installation_id)
                 except Exception as e:
@@ -537,8 +551,8 @@ def format_workflow_comment(analysis, workflow_name, conclusion, failed_jobs, wo
     return comment
 
 
-def handle_triage_mention(payload, installation_id):
-    """Handle \\ansieyes_triage mention in issue or PR comments"""
+def handle_triage_mention(payload, installation_id, skip_prompt_injection=False):
+    """Handle /ansieyes_triage or /ansieyes_triage_force in issue or PR comments."""
     issue_data = payload.get('issue', {})
     repo_full_name = payload.get('repository', {}).get('full_name')
     issue_number = issue_data.get('number')
@@ -559,24 +573,30 @@ def handle_triage_mention(payload, installation_id):
         repo = github_client.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)
         
-        # Validation: \ansieyes_triage should only work on issues, not PRs
+        # Validation: triage commands only on issues, not PRs
         if is_pull_request:
-            error_comment = """## ⚠️ Invalid Command
+            error_comment = f"""## ⚠️ Invalid Command
 
-`\\ansieyes_triage` can only be used on **issues**, not pull requests.
+`{CMD_TRIAGE}` and `{CMD_TRIAGE_FORCE}` can only be used on **issues**, not pull requests.
 
-For PR reviews, please use `\\ansieyes_prreview` instead.
+For PR reviews, please use `{CMD_PR_REVIEW}` instead.
 
 ---
 *This is an automated response from Ansieyes.*"""
             issue.create_comment(error_comment)
-            logger.warning(f"\\ansieyes_triage used on PR #{issue_number}, posted error message")
+            logger.warning(f"Triage command used on PR #{issue_number}, posted error message")
             return
         
         # Post processing message
+        triage_note = (
+            "\n\n*Prompt-injection screening skipped (force triage).*"
+            if skip_prompt_injection
+            else ""
+        )
         processing_comment = issue.create_comment(
             "## Ansieyes Issue Triage has been Initiated\n\n"
-            "This may take a few minutes. Results will be posted here.\n\n"
+            "This may take a few minutes. Results will be posted here."
+            f"{triage_note}\n\n"
             "---\n*Powered by Ansieyes using AI-Issue-Triage*"
         )
         
@@ -657,7 +677,8 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
             description=body,
             repo_url=repo_url,
             existing_issues=existing_issues if existing_issues else None,
-            repo_path=cloned_repo_path
+            repo_path=cloned_repo_path,
+            skip_prompt_injection=skip_prompt_injection,
         )
         
         # Clean up cloned repository (CRITICAL: Always cleanup)
@@ -845,7 +866,7 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
 
 
 def handle_pr_review_mention(payload, installation_id):
-    """Handle \\ansieyes_prreview mention in issue or PR comments"""
+    """Handle /ansieyes_prreview in issue or PR comments."""
     issue_data = payload.get('issue', {})
     repo_full_name = payload.get('repository', {}).get('full_name')
     issue_number = issue_data.get('number')
@@ -866,18 +887,18 @@ def handle_pr_review_mention(payload, installation_id):
         repo = github_client.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)
         
-        # Validation: \ansieyes_prreview should only work on PRs, not issues
+        # Validation: /ansieyes_prreview only on PRs, not issues
         if not is_pull_request:
-            error_comment = """## ⚠️ Invalid Command
+            error_comment = f"""## ⚠️ Invalid Command
 
-`\\ansieyes_prreview` can only be used on **pull requests**, not regular issues.
+`{CMD_PR_REVIEW}` can only be used on **pull requests**, not regular issues.
 
-For issue triage, please use `\\ansieyes_triage` instead.
+For issue triage, please use `{CMD_TRIAGE}` or `{CMD_TRIAGE_FORCE}` (skips prompt-injection check).
 
 ---
 *This is an automated response from Ansieyes.*"""
             issue.create_comment(error_comment)
-            logger.warning(f"\\ansieyes_prreview used on issue #{issue_number}, posted error message")
+            logger.warning(f"{CMD_PR_REVIEW} used on issue #{issue_number}, posted error message")
             return
         
         # Get the PR object

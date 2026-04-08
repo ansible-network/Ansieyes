@@ -18,7 +18,7 @@
 **What is Ansieyes?**
 - AI-powered GitHub bot for PR reviews and issue triage
 - Uses Google's Gemini AI
-- Mention-based triggers: `\ansieyes_prreview` and `\ansieyes_triage`
+- Mention-based triggers: `/ansieyes_prreview`, `/ansieyes_triage`, and `/ansieyes_triage_force` (same as triage but skips prompt-injection screening)
 
 **What you need:**
 - Python 3.8+, Node.js, Git
@@ -205,17 +205,17 @@ Forwarding   https://abc123.ngrok.io -> http://localhost:3000
 #### Test PR Review:
 1. Go to a test repository where the app is installed
 2. Create a test pull request
-3. Add a comment: `\ansieyes_prreview`
+3. Add a comment: `/ansieyes_prreview`
 4. Bot should respond with code review (~10-30 seconds)
 
 #### Test Issue Triage:
 1. Create a test issue
-2. Add a comment: `\ansieyes_triage`
+2. Add a comment: `/ansieyes_triage`
 3. Bot should respond with analysis (~30-70 seconds)
 
 #### Test Validation:
-1. Try `\ansieyes_triage` on a PR → Should get error message ✓
-2. Try `\ansieyes_prreview` on an issue → Should get error message ✓
+1. Try `/ansieyes_triage` on a PR → Should get error message ✓
+2. Try `/ansieyes_prreview` on an issue → Should get error message ✓
 
 **If all tests pass, you're ready!**
 
@@ -227,8 +227,9 @@ Forwarding   https://abc123.ngrok.io -> http://localhost:3000
 
 | Command | Use On | What It Does | Time |
 |---------|--------|--------------|------|
-| `\ansieyes_prreview` | Pull Requests ONLY | AI code review | 10-30s |
-| `\ansieyes_triage` | Issues ONLY | Two-pass analysis + labeling | 30-70s |
+| `/ansieyes_prreview` | Pull Requests ONLY | AI code review | 10-30s |
+| `/ansieyes_triage` | Issues ONLY | Two-pass analysis + labeling (includes prompt-injection check) | 30-70s |
+| `/ansieyes_triage_force` | Issues ONLY | Same as `/ansieyes_triage` but **does not** run prompt-injection detection | 30-70s |
 
 ### ⚠️ IMPORTANT: Exact Match Required
 
@@ -236,20 +237,20 @@ Commands must be **exact** with **no extra text**:
 
 ✅ **Correct:**
 ```
-\ansieyes_triage
+/ansieyes_triage
 ```
 
 ❌ **Wrong:**
 ```
-\ansieyes_triage please analyze
-Hey \ansieyes_triage
-\ansieyes_triage!
+/ansieyes_triage please analyze
+Hey /ansieyes_triage
+/ansieyes_triage!
 @ab_triage (missing underscore)
 ```
 
 ### What Each Command Does
 
-#### `\ansieyes_prreview` - PR Code Review
+#### `/ansieyes_prreview` - PR Code Review
 
 **Uses**: Direct Gemini API (NOT AI-Issue-Triage)
 
@@ -281,19 +282,24 @@ This PR adds user authentication...
 ...
 ```
 
-#### `\ansieyes_triage` - Issue Analysis
+#### `/ansieyes_triage` - Issue Analysis
 
 **Uses**: AI-Issue-Triage package with two-pass architecture
 
 **What it does:**
-1. **Clones your repository** to fetch:
+1. **Prompt-injection screening** on the issue title and body (high/critical risk blocks triage)
+2. **Clones your repository** to fetch:
    - `triage.config.json` (if exists)
    - `.omit-triage` (if exists)
-2. **Duplicate Check**: Compares with existing open issues
-3. **Librarian Pass**: Identifies relevant files from codebase
-4. **Surgeon Pass**: Deep analysis of identified code
-5. **Auto-labeling**: Applies type and severity labels
-6. Posts comprehensive analysis
+3. **Duplicate Check**: Compares with existing open issues
+4. **Librarian Pass**: Identifies relevant files from codebase
+5. **Surgeon Pass**: Deep analysis of identified code
+6. **Auto-labeling**: Applies type and severity labels
+7. Posts comprehensive analysis
+
+#### `/ansieyes_triage_force` - Issue Analysis (no prompt-injection check)
+
+Same pipeline as `/ansieyes_triage`, but **step 1 (prompt-injection screening) is skipped**. Use when a maintainer trusts the issue content and triage was blocked as a false positive.
 
 **Example output:**
 ```markdown
@@ -611,7 +617,7 @@ sudo systemctl enable ansieyes
 ### Bot Not Responding to Commands
 
 #### Check 1: Command Format
-- Must be **exact match**: `\ansieyes_triage` or `\ansieyes_prreview`
+- Must be **exact match**: `/ansieyes_triage`, `/ansieyes_triage_force`, or `/ansieyes_prreview`
 - No extra text allowed
 - No typos (check underscore placement)
 
@@ -634,8 +640,11 @@ sudo systemctl enable ansieyes
 # Check terminal where bot is running
 # Look for errors in output
 
-# Or if running as service
-tail -f /var/log/ansieyes.log
+# Or if running as service (log path is the app directory, not /var/log)
+tail -f /path/to/Ansieyes/ansieyes.log
+# e.g. on EC2: tail -f ~/Ansieyes/ansieyes.log
+# Or follow the systemd journal:
+journalctl -u ansieyes -f
 ```
 
 ### "AI-Issue-Triage not found" Error
@@ -672,27 +681,27 @@ export PATH=$PATH:/usr/local/bin
 
 **Example 1: Wrong command on PR**
 ```
-User comments on PR: \ansieyes_triage
+User comments on PR: /ansieyes_triage
 
 Bot responds:
 ⚠️ Invalid Command
-\ansieyes_triage can only be used on issues.
-For PR reviews, use \ansieyes_prreview instead.
+/ansieyes_triage (and /ansieyes_triage_force) can only be used on issues.
+For PR reviews, use /ansieyes_prreview instead.
 ```
 
-**Solution**: Use `\ansieyes_prreview` on PRs
+**Solution**: Use `/ansieyes_prreview` on PRs
 
 **Example 2: Wrong command on Issue**
 ```
-User comments on Issue: \ansieyes_prreview
+User comments on Issue: /ansieyes_prreview
 
 Bot responds:
 ⚠️ Invalid Command
-\ansieyes_prreview can only be used on pull requests.
-For issue triage, use \ansieyes_triage instead.
+/ansieyes_prreview can only be used on pull requests.
+For issue triage, use /ansieyes_triage or /ansieyes_triage_force instead.
 ```
 
-**Solution**: Use `\ansieyes_triage` on issues
+**Solution**: Use `/ansieyes_triage` on issues
 
 ### Gemini API Errors
 
@@ -752,7 +761,7 @@ env | grep GITHUB
 1. Create `triage.config.json` in your repo root
 2. Create `.omit-triage` in your repo root
 3. Commit and push
-4. Next `\ansieyes_triage` will use them
+4. Next `/ansieyes_triage` will use them
 
 **To verify bot is fetching configs:**
 Check bot logs for:
@@ -785,11 +794,12 @@ Ansieyes (app.py)
     │         │
     │         └─── issue_comment → Check comment text
     │                                  │
-    │                                  ├─── "\ansieyes_prreview" → pr_reviewer.py
+    │                                  ├─── "/ansieyes_prreview" → pr_reviewer.py
     │                                  │                            │
     │                                  │                            └──→ Gemini API
     │                                  │
-    │                                  └─── "\ansieyes_triage" → issue_triager.py
+    │                                  ├─── "/ansieyes_triage" → issue_triager.py
+    │                                  └─── "/ansieyes_triage_force" → issue_triager.py (skip injection check)
     │                                                             │
     │                                                             ├─── Clone repo (get configs)
     │                                                             │
@@ -810,7 +820,7 @@ Ansieyes (app.py)
 1. **PR Review**: Uses `pr_reviewer.py` directly with Gemini (does NOT use AI-Issue-Triage)
 2. **Issue Triage**: Uses AI-Issue-Triage package with two-pass architecture
 3. **Config Fetching**: Bot clones repository to get `triage.config.json` and `.omit-triage`
-4. **Exact Matching**: Commands must be exact (`\ansieyes_triage` or `\ansieyes_prreview` only)
+4. **Exact Matching**: Commands must be exact (`/ansieyes_triage`, `/ansieyes_triage_force`, or `/ansieyes_prreview` only)
 5. **Context Validation**: Wrong command on wrong context shows helpful error
 
 ---
@@ -818,7 +828,7 @@ Ansieyes (app.py)
 ## FAQ
 
 **Q: Can I change the trigger commands?**  
-A: Yes, edit `app.py` around line 150. Change `'\ansieyes_triage'` and `'\ansieyes_prreview'` to your preferred strings.
+A: Yes, edit `app.py` and change the `CMD_TRIAGE`, `CMD_TRIAGE_FORCE`, and `CMD_PR_REVIEW` constants near the top of the file.
 
 **Q: Does PR review use AI-Issue-Triage?**  
 A: No. Only issue triage uses AI-Issue-Triage. PR review uses Gemini directly.
@@ -905,8 +915,9 @@ python3 app.py
 ### Usage Commands
 
 ```
-\ansieyes_triage      # Issue triage (exact match only)
-\ansieyes_prreview    # PR review (exact match only)
+/ansieyes_triage       # Issue triage (exact match only)
+/ansieyes_triage_force # Issue triage without prompt-injection check
+/ansieyes_prreview     # PR review (exact match only)
 ```
 
 ### Testing Commands
@@ -940,7 +951,7 @@ python3 -c "import google.generativeai as genai; genai.configure(api_key='your_k
 
 1. **Run**: `./setup-ansieyes.sh` (or follow manual steps)
 2. **Create**: GitHub App with correct permissions
-3. **Test**: Use `\ansieyes_triage` on issue, `\ansieyes_prreview` on PR
+3. **Test**: Use `/ansieyes_triage` on issue, `/ansieyes_prreview` on PR
 4. **Deploy**: To AWS/Railway/Render for production
 5. **Customize**: Add `triage.config.json` to your repos
 
