@@ -23,7 +23,7 @@ class PRReviewer:
             logger.warning("Gemini API key not provided")
         
         # Path to AI-Issue-Triage installation
-        self.ai_triage_path = ai_triage_path or os.getenv("AI_TRIAGE_PATH", "/root/AI-Issue-Triage")
+        self.ai_triage_path = ai_triage_path or os.getenv("AI_TRIAGE_PATH", os.path.expanduser("~/AI-Issue-Triage"))
         
         if not os.path.exists(self.ai_triage_path):
             raise ValueError(f"AI-Issue-Triage not found at {self.ai_triage_path}")
@@ -102,11 +102,18 @@ class PRReviewer:
                     return f"❌ **PR Review Failed**\n\n```\n{result.stderr}\n```"
             
             finally:
-                # Cleanup temporary files
-                if os.path.exists(pr_file_path):
-                    os.unlink(pr_file_path)
-                if os.path.exists(output_file_path):
-                    os.unlink(output_file_path)
+                # Cleanup temporary files (robust error handling)
+                try:
+                    if os.path.exists(pr_file_path):
+                        os.unlink(pr_file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup PR file {pr_file_path}: {e}")
+
+                try:
+                    if os.path.exists(output_file_path):
+                        os.unlink(output_file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup output file {output_file_path}: {e}")
 
         except subprocess.TimeoutExpired:
             logger.error("PR review timed out")
