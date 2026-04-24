@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class IssueTriager:
     """Handle AI-powered issue triage using two-pass architecture"""
 
-    def __init__(self, api_key: Optional[str] = None, ai_triage_path: str = "/Users/shvenkat/Documents/AI/AI-Issue-Triage"):
+    def __init__(self, api_key: Optional[str] = None, ai_triage_path: str = None):
         """Initialize the issue triager
         
         Args:
@@ -26,7 +26,9 @@ class IssueTriager:
             ai_triage_path: Path to AI-Issue-Triage repository
         """
         self.api_key = api_key or os.getenv('GEMINI_API_KEY')
-        self.ai_triage_path = Path(ai_triage_path)
+        # Use provided path, env var, or default to ~/AI-Issue-Triage
+        triage_path = ai_triage_path or os.getenv('AI_TRIAGE_PATH') or os.path.expanduser('~/AI-Issue-Triage')
+        self.ai_triage_path = Path(triage_path)
         
         # Try to load prompt injection detector from AI-Issue-Triage
         self.detect_prompt_injection_func = None
@@ -150,7 +152,10 @@ class IssueTriager:
             )
             
             # Clean up temp file
-            os.unlink(issues_file)
+            try:
+                os.unlink(issues_file)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup issues file {issues_file}: {e}")
             
             if result.returncode == 0:
                 return json.loads(result.stdout)
@@ -217,11 +222,18 @@ class IssueTriager:
             if result.returncode == 0 and os.path.exists(output_file):
                 with open(output_file, 'r') as f:
                     librarian_result = json.load(f)
-                os.unlink(output_file)
+                try:
+                    os.unlink(output_file)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup librarian output file {output_file}: {e}")
                 return librarian_result
             else:
                 logger.error(f"Librarian failed: {result.stderr}")
-                os.unlink(output_file)
+                try:
+                    if os.path.exists(output_file):
+                        os.unlink(output_file)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup librarian output file {output_file}: {e}")
                 return {"relevant_files": [], "error": result.stderr}
                 
         except Exception as e:
@@ -302,12 +314,18 @@ class IssueTriager:
             if result.returncode == 0 and os.path.exists(output_file):
                 with open(output_file, 'r') as f:
                     surgeon_result = f.read()  # Read as text, not JSON
-                os.unlink(output_file)
+                try:
+                    os.unlink(output_file)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup surgeon output file {output_file}: {e}")
                 return {"formatted_output": surgeon_result}  # Return formatted text
             else:
                 logger.error(f"Surgeon failed: {result.stderr}")
-                if os.path.exists(output_file):
-                    os.unlink(output_file)
+                try:
+                    if os.path.exists(output_file):
+                        os.unlink(output_file)
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup surgeon output file {output_file}: {e}")
                 return {"error": result.stderr}
                 
         except Exception as e:
@@ -527,14 +545,20 @@ class IssueTriager:
                 result["error"] = f"Failed to clone repository: {e}"
                 if cleanup_needed and local_temp_dir:
                     import shutil
-                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                    try:
+                        shutil.rmtree(local_temp_dir, ignore_errors=False)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup {local_temp_dir}: {cleanup_error}")
                 return result
             except subprocess.TimeoutExpired:
                 logger.error("Git clone timeout")
                 result["error"] = "Repository clone timeout"
                 if cleanup_needed and local_temp_dir:
                     import shutil
-                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                    try:
+                        shutil.rmtree(local_temp_dir, ignore_errors=False)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup {local_temp_dir}: {cleanup_error}")
                 return result
         else:
             logger.info(f"Using existing repo path: {repo_path}")
@@ -551,33 +575,40 @@ class IssueTriager:
                 logger.warning("No relevant files identified")
                 if cleanup_needed and local_temp_dir:
                     import shutil
-                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                    try:
+                        shutil.rmtree(local_temp_dir, ignore_errors=False)
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to cleanup {local_temp_dir}: {cleanup_error}")
                 return result
             
             # Step 3: Generate targeted repomix and run Surgeon
             logger.info("Generating targeted repomix...")
-            
+
             # Create a temp file for targeted repomix (will be cleaned up)
             targeted_repomix_fd, targeted_repomix_path = tempfile.mkstemp(suffix='.txt')
             os.close(targeted_repomix_fd)  # Close file descriptor
-            
-            # Generate repomix with identified files
+
+            # Generate repomix with identified files from already-cloned repo
+            # This avoids double-cloning the repository
             file_list = result["librarian"]["relevant_files"]
             include_args = []
             for file in file_list:
                 include_args.extend(['--include', file])
-            
-            cmd = ['repomix', '--remote', repo_url, '--style', 'plain', 
-                   '--output', targeted_repomix_path] + include_args
-            
+
+            # Find repomix command
+            repomix_cmd = self._find_repomix()
+
+            # Run repomix from within the cloned repo (no --remote, uses local files)
+            cmd = repomix_cmd + ['--style', 'plain', '--output', targeted_repomix_path] + include_args
+
             try:
-                subprocess.run(cmd, capture_output=True, timeout=300, check=True)
+                subprocess.run(cmd, cwd=repo_path, capture_output=True, timeout=300, check=True)
+                logger.info(f"Generated targeted repomix from local repo at {repo_path}")
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                logger.warning(f"Targeted repomix failed: {e}, trying fallback")
-                # Fallback: use full repo
-                subprocess.run(['repomix', '--remote', repo_url, '--style', 'plain',
-                              '--output', targeted_repomix_path], 
-                             capture_output=True, timeout=300)
+                logger.warning(f"Targeted repomix failed: {e}, trying fallback without filters")
+                # Fallback: use full repo without filters
+                subprocess.run(repomix_cmd + ['--style', 'plain', '--output', targeted_repomix_path],
+                              cwd=repo_path, capture_output=True, timeout=300)
             
             if os.path.exists(targeted_repomix_path) and os.path.getsize(targeted_repomix_path) > 0:
                 # Run Surgeon with config and repo_path
@@ -607,10 +638,16 @@ class IssueTriager:
             if cleanup_needed and local_temp_dir:
                 try:
                     import shutil
-                    shutil.rmtree(local_temp_dir, ignore_errors=True)
+                    shutil.rmtree(local_temp_dir, ignore_errors=False)  # Don't ignore errors
                     logger.debug(f"Cleaned up temp directory: {local_temp_dir}")
                 except Exception as e:
-                    logger.warning(f"Failed to clean up temp directory: {e}")
+                    logger.error(f"CRITICAL: Failed to clean up temp directory {local_temp_dir}: {e}")
+                    # Try fallback cleanup
+                    try:
+                        subprocess.run(['rm', '-rf', local_temp_dir], timeout=30, check=False)
+                        logger.info(f"Fallback cleanup succeeded for {local_temp_dir}")
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback cleanup also failed for {local_temp_dir}: {fallback_error}")
         
         return result
 
@@ -624,7 +661,7 @@ class IssueTriager:
         Returns:
             Formatted markdown comment
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
         
         # Prompt injection check - HIGH/CRITICAL blocks (formatted like AI-Issue-Triage)
         if triage_result.get("prompt_injection_check"):
@@ -649,7 +686,7 @@ class IssueTriager:
                 confidence_percent = int(injection.get("confidence", 0) * 100)
                 comment += f"🔴 **Risk Level:** `{risk_level.upper()}`  \n"
                 comment += f"📊 **Confidence:** `{confidence_percent}%`  \n"
-                comment += f"⏰ **Generated:** `{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}`\n\n"
+                comment += f"⏰ **Generated:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`\n\n"
                 comment += "---\n\n"
                 
                 if injection.get("detected_patterns"):
@@ -684,7 +721,7 @@ class IssueTriager:
                 
                 comment += f"📊 **Similarity Score:** `{similarity_percent}%`  \n"
                 comment += f"🎯 **Confidence:** `{confidence_percent}%`  \n"
-                comment += f"⏰ **Generated:** `{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}`\n\n"
+                comment += f"⏰ **Generated:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`\n\n"
                 comment += "---\n\n"
                 
                 # Show why it's considered duplicate

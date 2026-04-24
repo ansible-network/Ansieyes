@@ -35,7 +35,7 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GITHUB_APP_ID = os.getenv('GITHUB_APP_ID')
 GITHUB_PRIVATE_KEY_PATH = os.getenv('GITHUB_PRIVATE_KEY_PATH')
 GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET')
-AI_TRIAGE_PATH = os.getenv('AI_TRIAGE_PATH', '/Users/shvenkat/Documents/AI/AI-Issue-Triage')
+AI_TRIAGE_PATH = os.getenv('AI_TRIAGE_PATH', os.path.expanduser('~/AI-Issue-Triage'))
 PORT = int(os.getenv('PORT', 3000))
 HOST = os.getenv('HOST', '0.0.0.0')
 
@@ -98,8 +98,8 @@ def get_label_color(label_name):
 def verify_webhook_signature(payload_body, signature_header):
     """Verify GitHub webhook signature"""
     if not GITHUB_WEBHOOK_SECRET:
-        logger.warning("GITHUB_WEBHOOK_SECRET not set. Skipping signature verification.")
-        return True
+        logger.error("GITHUB_WEBHOOK_SECRET not set. Webhook signature verification required for security.")
+        return False
 
     if not signature_header:
         return False
@@ -610,7 +610,10 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
                 "Please try again later or contact support.\n\n"
                 "---\n*Powered by Ansieyes*"
             )
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=False)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temp_dir {temp_dir}: {cleanup_error}")
             return
         except Exception as e:
             logger.error(f"Failed to clone repository: {e}")
@@ -620,20 +623,41 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
                 f"Error: {str(e)}\n\n"
                 "---\n*Powered by Ansieyes*"
             )
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=False)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temp_dir {temp_dir}: {cleanup_error}")
             return
         
         # Fetch existing issues for duplicate detection
-        # Only fetch OPEN issues that were created BEFORE the current issue
+        # Only fetch recent OPEN issues (last 90 days) that were created BEFORE the current issue
+        # Limit to 200 issues max to avoid rate limiting and performance issues
         logger.info("Fetching existing issues for duplicate detection...")
         existing_issues = []
         try:
+            from datetime import datetime, timedelta, timezone
             current_issue_created_at = issue.created_at
-            for existing_issue in repo.get_issues(state='open'):
+            # Only check issues from last 90 days
+            ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
+
+            issue_count = 0
+            max_issues = 200  # Limit to prevent rate limiting
+
+            for existing_issue in repo.get_issues(state='open', sort='created', direction='desc'):
+                # Stop if we've checked enough issues
+                if issue_count >= max_issues:
+                    logger.info(f"Reached max issue limit ({max_issues}), stopping duplicate check")
+                    break
+
+                # Stop if we've gone back 90 days
+                if existing_issue.created_at < ninety_days_ago:
+                    logger.info("Reached 90-day threshold, stopping duplicate check")
+                    break
+
                 # Skip the current issue
                 if existing_issue.number == issue_number:
                     continue
-                
+
                 # Only include issues created BEFORE the current issue
                 # This ensures issue A (older) won't be marked as duplicate of issue B (newer)
                 if existing_issue.created_at < current_issue_created_at:
@@ -645,8 +669,10 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
                         'created_date': existing_issue.created_at.isoformat(),
                         'url': existing_issue.html_url
                     })
-            
-            logger.info(f"Found {len(existing_issues)} older open issues for duplicate check")
+
+                issue_count += 1
+
+            logger.info(f"Found {len(existing_issues)} older open issues for duplicate check (checked {issue_count} total)")
         except Exception as e:
             logger.warning(f"Could not fetch existing issues: {e}")
         
@@ -662,11 +688,17 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
         
         # Clean up cloned repository (CRITICAL: Always cleanup)
         try:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            shutil.rmtree(temp_dir, ignore_errors=False)  # Don't ignore errors
             logger.info(f"Cleaned up temp directory: {temp_dir}")
         except Exception as e:
-            logger.error(f"Failed to clean up temp directory: {e}")
-            # Log this for monitoring - disk space issues can be serious
+            logger.error(f"CRITICAL: Failed to clean up temp directory {temp_dir}: {e}")
+            # Disk space issues are serious - try fallback cleanup
+            try:
+                subprocess.run(['rm', '-rf', temp_dir], timeout=30, check=False)
+                logger.info(f"Fallback cleanup succeeded for {temp_dir}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback cleanup also failed for {temp_dir}: {fallback_error}")
+                # This is a critical issue - log for monitoring/alerting
         
         # Check if triage_result is valid
         if not triage_result:
@@ -710,21 +742,31 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
         except Exception as e:
             logger.warning(f"Could not delete processing comment: {e}")
         
-        # Simple label management: Remove ALL existing labels, then add new ones
+        # Smart label management: Only remove bot-added labels, preserve user labels
         logger.info("Starting label management...")
         labels_to_add = []
-        
-        # Remove ALL existing labels
+
+        # Define labels that are managed by the bot (safe to remove)
+        bot_managed_label_prefixes = ['Type : ', 'Severity : ', 'ai-triaged', 'duplicate', 'Prompt injection blocked', 'ai-reviewed']
+
+        # Remove only bot-managed labels
         try:
             existing_labels = [label.name for label in issue.labels]
-            if existing_labels:
-                for label in existing_labels:
+            labels_to_remove = []
+            for label_name in existing_labels:
+                # Check if this label was added by the bot
+                is_bot_label = any(label_name.startswith(prefix) or label_name == prefix for prefix in bot_managed_label_prefixes)
+                if is_bot_label:
+                    labels_to_remove.append(label_name)
+
+            if labels_to_remove:
+                for label in labels_to_remove:
                     issue.remove_from_labels(label)
-                logger.info(f"Removed all old labels: {existing_labels}")
+                logger.info(f"Removed bot-managed labels: {labels_to_remove}")
             else:
-                logger.info("No existing labels to remove")
+                logger.info("No bot-managed labels to remove")
         except Exception as e:
-            logger.warning(f"Could not remove old labels: {e}")
+            logger.warning(f"Could not remove bot-managed labels: {e}")
             import traceback
             traceback.print_exc()
         
@@ -835,13 +877,15 @@ For PR reviews, please use `\\ansieyes_prreview` instead.
             logger.warning("No labels to add")
         
         logger.info(f"Triage completed for issue #{issue_number}")
-        
+
     except GithubException as e:
         logger.error(f"GitHub API error: {e}")
+        raise  # Re-raise so webhook handler can return 500
     except Exception as e:
         logger.error(f"Error handling triage mention: {e}")
         import traceback
         traceback.print_exc()
+        raise  # Re-raise so webhook handler can return 500
 
 
 def handle_pr_review_mention(payload, installation_id):
@@ -942,19 +986,35 @@ For issue triage, please use `\\ansieyes_triage` instead.
             pass
         
         logger.info(f"PR review completed for PR #{issue_number}")
-        
+
     except GithubException as e:
         logger.error(f"GitHub API error: {e}")
+        raise  # Re-raise so webhook handler can return 500
     except Exception as e:
         logger.error(f"Error handling PR review mention: {e}")
         import traceback
         traceback.print_exc()
+        raise  # Re-raise so webhook handler can return 500
 
 
 if __name__ == '__main__':
     if not GEMINI_API_KEY:
         logger.error("GEMINI_API_KEY environment variable is required")
         exit(1)
+
+    # Production deployment warning
+    logger.warning("=" * 80)
+    logger.warning("⚠️  PRODUCTION WARNING")
+    logger.warning("=" * 80)
+    logger.warning("Flask's built-in server is NOT production-ready!")
+    logger.warning("For production, use a WSGI server like gunicorn or uvicorn:")
+    logger.warning("")
+    logger.warning("  gunicorn -w 4 -b 0.0.0.0:3000 app:app")
+    logger.warning("  or")
+    logger.warning("  uvicorn app:app --host 0.0.0.0 --port 3000 --workers 4")
+    logger.warning("")
+    logger.warning("Flask dev server is single-threaded and crashes on uncaught exceptions.")
+    logger.warning("=" * 80)
 
     logger.info(f"Starting GitHub PR Review Bot on {HOST}:{PORT}")
     app.run(host=HOST, port=PORT, debug=False)
