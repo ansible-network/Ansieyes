@@ -17,8 +17,8 @@
     }
   },
   "mentions": {
-    "triage_trigger": "\\ansieyes_triage",
-    "pr_review_trigger": "\\ansieyes_prreview"
+    "triage_trigger": "/ansieyes_triage",
+    "pr_review_trigger": "/ansieyes_prreview"
   },
   "labels": {
     "auto_apply": true,

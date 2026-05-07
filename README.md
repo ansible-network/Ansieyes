@@ -13,8 +13,9 @@ AI bot for PR reviews and issue triage using Google's Gemini AI.
 ## Usage
 
 Comment on GitHub:
-- **`\ansieyes_prreview`** - Review a PR
-- **`\ansieyes_triage`** - Analyze an issue
+- **`/ansieyes_prreview`** - Review a PR
+- **`/ansieyes_triage`** - Analyze an issue (includes prompt-injection check)
+- **`/ansieyes_triage_force`** - Same as triage but skips prompt-injection screening
 
 **Important**: Exact match only, no extra text!
 
